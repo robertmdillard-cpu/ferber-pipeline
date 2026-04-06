@@ -1,0 +1,3679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Firebase v9 compat (works as plain scripts, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- SheetJS for xlsx export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    /* ── Core surfaces — warm white like FUB, not cold gray ── */
+    --bg:          #f7f7f5;
+    --surface:     #ffffff;
+    --surface2:    #fafaf8;
+    --surface3:    #f3f3f0;
+    --border:      #e4e4de;
+    --border-soft: #ececea;
+
+    /* ── Text — slightly warm dark, not pure navy ── */
+    --text:        #1c1c1a;
+    --text-2:      #4a4a46;
+    --text-3:      #8f8f8a;
+    --text-4:      #c4c4be;
+
+    /* ── Brand accents ── */
+    --green:       #1a9e6e;
+    --green-bg:    #edfaf5;
+    --blue:        #2563eb;
+    --blue-bg:     #eff4ff;
+    --violet:      #7c3aed;
+    --violet-bg:   #f5f0ff;
+    --amber:       #d97706;
+    --amber-bg:    #fffbeb;
+    --slate:       #6b7280;
+    --slate-bg:    #f3f4f6;
+    --red:         #dc2626;
+    --red-bg:      #fef2f2;
+
+    /* ── DM colors ── */
+    --mc:          #059669;
+    --rp:          #2563eb;
+    --tm:          #d97706;
+
+    /* ── Shadows — softer, warmer ── */
+    --shadow-sm:   0 1px 2px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.04);
+    --shadow-md:   0 4px 12px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+    --shadow-lg:   0 12px 36px rgba(0,0,0,0.1), 0 4px 10px rgba(0,0,0,0.05);
+
+    --radius:      10px;
+    --radius-sm:   7px;
+    --font:        'Inter', 'Aptos', 'Segoe UI', system-ui, sans-serif;
+    --mono:        'JetBrains Mono', monospace;
+    --bg:          #f3f3f0; /* alias for --surface3, keeps old references working */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── HEADER — FUB inspired: clean white bar, strong logo ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 0 var(--border), var(--shadow-sm);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .logo-mark {
+    width: 30px; height: 30px;
+    background: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(37,99,235,0.3);
+  }
+
+  .breadcrumb {
+    font-size: 0.78rem;
+    color: var(--text-3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .breadcrumb span { color: var(--text-2); font-weight: 500; }
+  .breadcrumb-sep { color: var(--text-4); }
+
+  .header-right { display: flex; align-items: center; gap: 8px; }
+
+  .btn {
+    font-family: var(--font);
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    letter-spacing: -0.01em;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--surface3); border-color: #d0d0c8; color: var(--text); }
+  .btn-primary {
+    background: var(--blue);
+    color: white;
+    border: 1px solid transparent;
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #1d4ed8; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
+
+  /* ── SUMMARY CARDS — Airtable-style compact stat blocks ── */
+  .summary-bar {
+    padding: 16px 28px 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+  }
+
+  .sum-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .sum-card::after {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--card-accent, var(--border));
+    border-radius: var(--radius) 0 0 var(--radius);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .sum-card:hover::after { opacity: 1; }
+  .sum-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-color: #d4d4cc; }
+  .sum-card:nth-child(1) { --card-accent: var(--mc); }
+  .sum-card:nth-child(2) { --card-accent: var(--rp); }
+  .sum-card:nth-child(3) { --card-accent: var(--tm); }
+  .sum-card:nth-child(4) { --card-accent: var(--blue); }
+  .sum-card:nth-child(5) { --card-accent: var(--slate); }
+
+  .sum-label { font-size: 0.66rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin-bottom: 6px; }
+  .sum-value { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.04em; color: var(--text); line-height: 1; }
+  .sum-card:nth-child(1) .sum-value { color: var(--mc); }
+  .sum-card:nth-child(2) .sum-value { color: var(--rp); }
+  .sum-card:nth-child(3) .sum-value { color: var(--tm); }
+  .sum-sub { font-size: 0.66rem; color: var(--text-3); margin-top: 4px; font-family: var(--mono); }
+
+  /* ── TOOLBAR — Airtable-style ── */
+  .toolbar {
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .toolbar-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    flex: 1;
+    min-width: 140px;
+    background: none;
+    border: none;
+    font-family: var(--font);
+    outline: none;
+  }
+
+  .search-wrap { position: relative; display: flex; align-items: center; }
+  .search-icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; font-size: 0.82rem; }
+  .search-input {
+    font-family: var(--font);
+    font-size: 0.78rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px 6px 30px;
+    border-radius: 6px;
+    outline: none;
+    width: 210px;
+    transition: all 0.18s;
+  }
+  .search-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); width: 250px; }
+  .search-input::placeholder { color: var(--text-4); }
+
+  .filters {
+    display: flex;
+    gap: 3px;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 3px;
+  }
+  .fchip {
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 4px 11px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .fchip:hover { color: var(--text-2); background: var(--surface); }
+  .fchip.active { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-sm); border: 1px solid var(--border); }
+
+  .fchip-divider {
+    width: 1px; height: 14px; background: var(--border);
+    margin: 0 3px; align-self: center; flex-shrink: 0;
+  }
+  .fchip.heat-hot  { color: #b91c1c; }
+  .fchip.heat-warm { color: #b45309; }
+  .fchip.heat-cold { color: #1d4ed8; }
+  .fchip.heat-hot.active  { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+  .fchip.heat-warm.active { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  .fchip.heat-cold.active { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+  .fchip.heat-hot:hover   { background: #fef2f2; color: #b91c1c; }
+  .fchip.heat-warm:hover  { background: #fffbeb; color: #b45309; }
+  .fchip.heat-cold:hover  { background: #eff6ff; color: #1d4ed8; }
+
+  /* ── MAP PIN MODE ── */
+  #map-container.pin-mode { cursor: crosshair !important; }
+  #map-container.pin-mode * { cursor: crosshair !important; }
+  /* banner for "click to place pin" mode — floats inside map, no pointer events */
+  .pin-mode-banner {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: #1a1a2e; color: white;
+    font-family: var(--font); font-size: 0.75rem; font-weight: 600;
+    padding: 8px 18px; border-radius: 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    pointer-events: none;
+    white-space: nowrap;
+    animation: bannerIn 0.2s ease;
+  }
+  @keyframes bannerIn { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+  /* bar for "move pin" mode — sits ABOVE the map body, fully clickable */
+  #movePinBar {
+    display: none;
+    align-items: center; justify-content: center; gap: 16px;
+    background: #1a1a2e; color: white;
+    font-family: var(--font); font-size: 0.78rem; font-weight: 600;
+    padding: 10px 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    position: relative; z-index: 10;
+  }
+  #movePinBar.active { display: flex; }
+  #movePinBar .mbar-label { opacity: 0.85; }
+  #movePinBar .mbar-btn {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    color: white; font-family: var(--font); font-size: 0.75rem; font-weight: 700;
+    padding: 5px 14px; border-radius: 20px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  #movePinBar .mbar-btn:hover { background: rgba(255,255,255,0.22); }
+  #movePinBar .mbar-btn.cancel { background: rgba(200,50,50,0.25); border-color: rgba(200,50,50,0.4); }
+  #movePinBar .mbar-btn.cancel:hover { background: rgba(200,50,50,0.4); }
+  .map-toggle-btn.pin-active { background: #cf1322 !important; color: white !important; border-color: #cf1322 !important; }
+
+  /* ── MAP FLOATING SEARCH ── */
+  #mapSearchBox {
+    position: absolute; top: 12px; left: 12px;
+    z-index: 900; width: 300px; max-width: calc(100% - 24px);
+  }
+  #mapSearchInputRow {
+    display: flex; align-items: center; gap: 6px;
+    background: white; border-radius: 10px;
+    padding: 7px 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.1);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  #mapSearchIcon { font-size: 0.85rem; flex-shrink: 0; opacity: 0.5; }
+  #mapSearchInput {
+    flex: 1; border: none; outline: none;
+    font-family: var(--font); font-size: 0.78rem; color: var(--text);
+    background: transparent; min-width: 0;
+  }
+  #mapSearchInput::placeholder { color: var(--text-4); }
+  #mapSearchClear {
+    display: none; background: none; border: none; cursor: pointer;
+    color: var(--text-4); font-size: 0.75rem; padding: 0 2px;
+    line-height: 1; flex-shrink: 0;
+  }
+  #mapSearchClear:hover { color: var(--text-2); }
+  #mapSearchResults {
+    background: white; border-radius: 8px; margin-top: 5px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    overflow: hidden; border: 1px solid var(--border);
+  }
+  .msearch-result {
+    padding: 8px 12px; font-size: 0.75rem; cursor: pointer;
+    color: var(--text-2); border-bottom: 1px solid var(--border);
+    line-height: 1.35; transition: background 0.1s;
+  }
+  .msearch-result:last-child { border-bottom: none; }
+  .msearch-result:hover { background: var(--blue-bg); color: var(--blue); }
+  .msearch-result strong { display: block; font-size: 0.78rem; color: var(--text); margin-bottom: 1px; }
+  .msearch-empty { padding: 10px 12px; font-size: 0.75rem; color: var(--text-4); text-align: center; }
+  .pin-result {
+    font-size: 0.73rem; padding: 7px 10px; border-radius: 6px;
+    cursor: pointer; color: var(--text-2);
+    transition: background 0.1s;
+    border: 1px solid transparent;
+  }
+  .pin-result:hover { background: var(--blue-bg); border-color: var(--blue); color: var(--blue); }
+  .pin-result-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top:4px; }
+  .pin-result + .pin-result { border-top: 1px solid var(--border); border-radius: 0; }
+
+
+  .pipeline-bar-wrap {
+    padding: 0 32px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pipeline-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+  }
+  .pipeline-bar div { transition: flex 0.5s ease; }
+  .pipeline-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 0.63rem; color: var(--text-3); font-family: var(--mono); }
+  .leg-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  /* ── MAIN ── */
+  .main { padding: 0 28px 60px; display: flex; flex-direction: column; gap: 12px; }
+
+  .section-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    animation: fadeUp 0.25s ease forwards;
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+  /* Airtable-style: colored left border on each section group */
+  .section-block[data-dm="MC"] { border-left: 3px solid var(--mc); }
+  .section-block[data-dm="RP"] { border-left: 3px solid var(--rp); }
+  .section-block[data-dm="TM"] { border-left: 3px solid var(--tm); }
+  .section-block[data-dm="dead"] { border-left: 3px solid var(--slate); }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface2);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+  }
+  .section-header:hover { background: var(--surface3); }
+
+  .section-pip { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .section-title { font-size: 0.78rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+  .section-badge {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-3);
+    padding: 1px 7px;
+    border-radius: 20px;
+  }
+  .section-total { margin-left: auto; font-family: var(--mono); font-size: 0.62rem; color: var(--text-3); }
+  .section-chevron { color: var(--text-4); font-size: 0.58rem; transition: transform 0.18s; margin-left: 4px; }
+  .section-chevron.open { transform: rotate(90deg); }
+
+  /* ── TABLE — Airtable grid style ── */
+  .deal-table { width: 100%; border-collapse: collapse; }
+
+  .deal-table thead th {
+    font-family: var(--font);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    padding: 8px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.12s;
+    border-right: 1px solid var(--border-soft);
+  }
+  .deal-table thead th:last-child { border-right: none; }
+  .deal-table thead th:hover { color: var(--text-2); background: var(--surface3); }
+  .deal-table thead th.sort-asc::after  { content: ' ↑'; font-size: 0.6rem; color: var(--blue); }
+  .deal-table thead th.sort-desc::after { content: ' ↓'; font-size: 0.6rem; color: var(--blue); }
+  .deal-table thead th.sort-asc,
+  .deal-table thead th.sort-desc { color: var(--blue); }
+
+  .deal-table tbody tr.data-row {
+    border-bottom: 1px solid var(--border-soft);
+    transition: background 0.08s;
+    cursor: pointer;
+  }
+  .deal-table tbody tr.data-row:last-of-type { border-bottom: none; }
+  .deal-table tbody tr.data-row:hover { background: #f5f5f2; }
+  .deal-table tbody tr.data-row.expanded { background: #f5f5f2; }
+  .deal-table tbody tr.hidden-row { display: none; }
+  .deal-table td {
+    padding: 9px 14px;
+    vertical-align: middle;
+    border-right: 1px solid var(--border-soft);
+  }
+  .deal-table td:last-child { border-right: none; }
+
+  .name-cell { display: flex; align-items: center; gap: 7px; }
+  .expand-btn {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: 0.48rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+    flex-shrink: 0;
+  }
+  .expand-btn:hover { background: var(--surface3); color: var(--text-2); }
+  .expand-btn.open { background: var(--blue); border-color: var(--blue); color: white; transform: rotate(90deg); }
+  .delete-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-4);
+    font-size: 0.75rem;
+    padding: 3px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+    margin-left: auto;
+  }
+  .data-row:hover .delete-btn { opacity: 1; }
+  .delete-btn:hover { color: var(--red); background: var(--red-bg); }
+
+  .restore-btn {
+    flex-shrink: 0;
+    background: none; border: none; cursor: pointer;
+    font-family: var(--font); font-size: 0.65rem; font-weight: 600;
+    color: var(--text-4); padding: 3px 7px; border-radius: 4px;
+    line-height: 1; opacity: 0;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .data-row:hover .restore-btn { opacity: 1; }
+  .restore-btn:hover { color: #059669; background: #ecfdf5; border-color: #a7f3d0; }
+  .data-row:hover .map-focus-btn { opacity: 1 !important; }
+  .map-focus-btn:hover { color: var(--blue) !important; }
+
+  .name-input {
+    background: none;
+    border: none;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 500;
+    outline: none;
+    border-bottom: 1.5px solid transparent;
+    transition: border-color 0.15s;
+    min-width: 120px;
+    max-width: 300px;
+    letter-spacing: -0.01em;
+  }
+  .name-input:focus { border-color: var(--blue); }
+
+  .dm-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    font-size: 0.56rem;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .status-wrap { position: relative; }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.12s;
+    border: 1px solid transparent;
+  }
+  .status-badge:hover { opacity: 0.8; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  .s-offer-sent  { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+  .s-loi-sent    { background: #eff4ff; color: #2563eb; border-color: #bfdbfe; }
+  .s-prospect    { background: #f5f0ff; color: #7c3aed; border-color: #ddd6fe; }
+  .s-potential   { background: #f0f9ff; color: #0284c7; border-color: #bae6fd; }
+  .s-uc          { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  .s-dead        { background: #f9fafb; color: #6b7280; border-color: #e5e7eb; }
+  .s-custom      { background: #fdf4ff; color: #9333ea; border-color: #e9d5ff; }
+
+  .status-mgr-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--border); margin-bottom: 6px;
+    font-size: 0.8rem;
+  }
+  .status-mgr-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .status-mgr-label { flex: 1; font-weight: 500; color: var(--text-2); }
+  .status-mgr-key { font-family: var(--mono); font-size: 0.65rem; color: var(--text-4); }
+  .status-mgr-del { background: none; border: none; cursor: pointer; color: var(--text-4); font-size: 0.75rem; padding: 2px 4px; border-radius: 4px; }
+  .status-mgr-del:hover { color: #cf1322; background: #fff1f0; }
+  .status-builtin { opacity: 0.6; font-size: 0.65rem; color: var(--text-4); }
+
+  .status-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    z-index: 60;
+    min-width: 160px;
+    box-shadow: var(--shadow-lg);
+    display: none;
+    overflow: hidden;
+    padding: 4px;
+  }
+  .status-dropdown.open { display: block; }
+  .status-option {
+    padding: 7px 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    border-radius: 6px;
+    transition: background 0.1s;
+    color: var(--text-2);
+  }
+  .status-option:hover { background: var(--bg); }
+
+  .price-val {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--surface3);
+    padding: 2px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--border-soft);
+  }
+  .price-none { font-family: var(--mono); font-size: 0.65rem; color: var(--text-4); }
+  .loc-text { font-size: 0.78rem; color: var(--text-2); }
+  .loc-state { font-family: var(--mono); font-size: 0.62rem; color: var(--text-3); margin-left: 3px; }
+  .acre-text { font-family: var(--mono); font-size: 0.67rem; color: var(--text-3); }
+
+  .pill-list { display: flex; flex-wrap: wrap; gap: 3px; }
+  .tenant-pill {
+    font-size: 0.63rem;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--blue-bg);
+    border: 1px solid #bfdbfe;
+    color: #2563eb;
+    white-space: nowrap;
+  }
+  .contact-text { font-size: 0.75rem; color: var(--text-2); }
+
+  /* ── DETAIL ROW ── */
+  .detail-row { display: none; }
+  .detail-row.visible { display: table-row; }
+  .detail-row > td { padding: 0; background: #f8f8f5; border-bottom: 1px solid var(--border-soft); }
+  .detail-inner {
+    padding: 18px 18px 18px 48px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px 22px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .df-label { font-family: var(--mono); font-size: 0.57rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin-bottom: 4px; font-weight: 500; }
+  .df-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 9px;
+    color: var(--text-2);
+    font-family: var(--font);
+    font-size: 0.78rem;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+  .df-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
+  .df-notes { grid-column: 1 / -1; }
+
+  /* ── TIMESTAMPED NOTES LOG ── */
+  .notes-log { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
+  .note-entry {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    color: var(--text-2);
+    line-height: 1.5;
+  }
+  .note-ts {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--text-3);
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .note-del {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-4); font-size: 0.7rem; padding: 0 2px;
+    line-height: 1; opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .note-entry:hover .note-del { opacity: 1; }
+  .note-del:hover { color: #cf1322; }
+  .note-add-row { display: flex; gap: 8px; align-items: flex-end; }
+  .note-add-row textarea {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: var(--font);
+    font-size: 0.78rem;
+    color: var(--text);
+    outline: none;
+    resize: none;
+    min-height: 52px;
+    line-height: 1.5;
+    transition: border-color 0.18s;
+  }
+  .note-add-row textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,111,245,0.08); }
+  .note-submit-btn {
+    flex-shrink: 0;
+    background: var(--blue);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--font);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+    align-self: flex-end;
+  }
+  .note-submit-btn:hover { background: #2958d4; }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.25);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 540px;
+    width: 94%;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+    animation: modalIn 0.2s ease;
+  }
+  /* ── MAP PANEL ── */
+  .map-section {
+    margin: 0 28px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    animation: fadeUp 0.25s ease forwards;
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  .map-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface2);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+  }
+  .map-header:hover { background: var(--surface3); }
+  .map-header-left { display: flex; align-items: center; gap: 10px; flex: 1; }
+  .map-icon {
+    width: 26px; height: 26px;
+    background: #eff6ff;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--blue); font-size: 0.82rem;
+  }
+  .map-title  { font-size: 0.78rem; font-weight: 600; color: var(--text); }
+  .map-subtitle { font-size: 0.67rem; color: var(--text-3); font-family: var(--mono); }
+  .map-controls { display: flex; gap: 5px; align-items: center; }
+  .map-toggle-btn {
+    font-family: var(--font); font-size: 0.7rem; font-weight: 500;
+    padding: 4px 10px; border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-2);
+    cursor: pointer; transition: all 0.12s;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .map-toggle-btn:hover { background: var(--surface3); }
+  .map-toggle-btn.active { background: var(--text); color: white; border-color: var(--text); }
+  .map-chevron { color: var(--text-4); font-size: 0.58rem; transition: transform 0.18s; margin-left: 4px; }
+  .map-chevron.open { transform: rotate(90deg); }
+  .map-body { display: block; }
+  #map-container { height: 420px; width: 100%; position: relative; }
+
+  /* Custom Leaflet popup */
+  .leaflet-popup-content-wrapper {
+    background: white;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06) !important;
+    border: 1px solid var(--border);
+    padding: 0 !important;
+    overflow: hidden;
+    font-family: var(--font) !important;
+  }
+  .leaflet-popup-tip-container { display: none; }
+  .leaflet-popup-close-button {
+    top: 8px !important; right: 10px !important;
+    color: var(--text-3) !important;
+    font-size: 1.1rem !important;
+  }
+  .leaflet-popup-content { margin: 0 !important; width: 240px !important; }
+
+  .map-popup {
+    padding: 14px 16px;
+  }
+  .mp-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
+  }
+  .mp-dot { width: 5px; height: 5px; border-radius: 50%; }
+  .mp-name { font-size: 0.82rem; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 4px; letter-spacing: -0.01em; }
+  .mp-city { font-size: 0.72rem; color: var(--text-3); margin-bottom: 8px; }
+  .mp-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .mp-label { font-family: var(--mono); font-size: 0.6rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .mp-val { font-family: var(--mono); font-size: 0.68rem; color: var(--text); font-weight: 500; }
+  .mp-dm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: white;
+  }
+  .mp-divider { height: 1px; background: var(--border-soft); margin: 8px 0; }
+  .mp-tenants { font-size: 0.68rem; color: var(--text-2); }
+  .mp-highlight-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 7px;
+    background: var(--text);
+    color: white;
+    border: none;
+    border-radius: 7px;
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    letter-spacing: -0.01em;
+  }
+  .mp-highlight-btn:hover { background: #2d2d4a; }
+  .mp-pin-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .mp-pin-btn {
+    flex: 1; font-family: var(--font); font-size: 0.7rem; font-weight: 600;
+    padding: 6px 4px; border-radius: 7px; border: 1px solid var(--border);
+    cursor: pointer; background: var(--surface); color: var(--text-2);
+    transition: all 0.15s; white-space: nowrap; text-align: center;
+  }
+  .mp-pin-btn:hover { background: var(--bg); color: var(--text); }
+  .mp-pin-btn.danger { color: #cf1322; border-color: #fca5a5; }
+  .mp-pin-btn.danger:hover { background: #fff1f0; }
+  .mp-pin-btn.move-active { background: #1a1a2e; color: white; border-color: #1a1a2e; }
+
+  /* draggable pin pulse */
+  @keyframes pinPulse {
+    0%,100% { filter: drop-shadow(0 0 4px rgba(59,111,245,0.8)); }
+    50%      { filter: drop-shadow(0 0 10px rgba(59,111,245,1)); }
+  }
+  .pin-dragging { animation: pinPulse 1s ease-in-out infinite; }
+
+  /* ── FOLLOW-UP COLUMN ── */
+  .fu-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 140px;
+    max-width: 200px;
+  }
+
+  /* Row 1: heat badge + due label side by side */
+  .fu-top-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  /* Row 2: snippet only, hidden until row hover */
+  .fu-bottom-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 0;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.18s ease, opacity 0.15s ease;
+  }
+  .data-row:hover .fu-bottom-row {
+    max-height: 32px;
+    opacity: 1;
+  }
+
+  /* Heat badge */
+  .fu-heat-wrap-outer { position: relative; }
+  .fu-heat-wrap { display: flex; align-items: center; }
+  .fu-heat {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font); font-size: 0.68rem; font-weight: 500;
+    padding: 2px 8px; border-radius: 4px; cursor: pointer;
+    border: 1px solid transparent; transition: opacity 0.12s;
+    white-space: nowrap; user-select: none; line-height: 1.6;
+  }
+  .fu-heat::before {
+    content: ''; width: 5px; height: 5px;
+    border-radius: 50%; flex-shrink: 0;
+  }
+  .fu-hot  { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+  .fu-hot::before  { background: #ef4444; }
+  .fu-warm { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+  .fu-warm::before { background: #f59e0b; }
+  .fu-cold { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+  .fu-cold::before { background: #3b82f6; }
+  .fu-none {
+    background: transparent; color: var(--text-4);
+    border-color: var(--border); border-style: dashed;
+    font-style: italic;
+  }
+  .fu-none::before { display: none; }
+  .fu-heat:hover { opacity: 0.75; }
+
+  /* Heat dropdown */
+  .fu-heat-menu {
+    position: absolute; top: calc(100% + 4px); left: 0;
+    z-index: 70;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg);
+    display: none; overflow: hidden;
+    padding: 3px; min-width: 140px;
+  }
+  .fu-heat-menu.open { display: block; }
+  .fu-heat-option {
+    padding: 6px 10px;
+    font-family: var(--font); font-size: 0.74rem; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    border-radius: 5px; transition: background 0.08s; color: var(--text-2);
+  }
+  .fu-heat-option:hover { background: var(--surface3); }
+  .fu-heat-option .fu-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .fu-heat-option .fu-days { margin-left: auto; font-size: 0.63rem; color: var(--text-4); font-family: var(--mono); }
+
+  /* Due label — inline next to heat badge */
+  .fu-due {
+    font-family: var(--mono); font-size: 0.63rem; font-weight: 500;
+    white-space: nowrap;
+  }
+  .fu-due.overdue { color: #b91c1c; font-weight: 600; }
+  .fu-due.today   { color: #b45309; font-weight: 600; }
+  .fu-due.soon    { color: #b45309; }
+  .fu-due.ok      { color: var(--text-3); font-weight: 400; }
+  .fu-due.none    { display: none; }
+
+  /* Done button */
+  .fu-done-btn {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-family: var(--font); font-size: 0.62rem; font-weight: 600;
+    color: #059669; background: #ecfdf5;
+    border: 1px solid #a7f3d0; border-radius: 4px;
+    padding: 1px 6px; cursor: pointer; transition: background 0.12s;
+  }
+  .fu-done-btn:hover { background: #d1fae5; }
+
+  /* Snippet — shown in bottom row on hover */
+  .fu-snippet {
+    font-size: 0.68rem; color: var(--text-3); line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 180px;
+  }
+
+  /* Email button — minimal text link */
+  .fu-email-btn {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-family: var(--font); font-size: 0.66rem; font-weight: 500;
+    color: var(--blue); text-decoration: none; white-space: nowrap;
+    transition: opacity 0.12s; flex-shrink: 0;
+  }
+  .fu-email-btn:hover { opacity: 0.7; text-decoration: underline; }
+
+  /* Last contact date — hidden entirely, not needed in table */
+  .fu-lastdate { display: none; }
+
+  /* Overdue/today row left accent */
+  tr.data-row.fu-overdue-row { border-left: 3px solid #ef4444; }
+  tr.data-row.fu-today-row   { border-left: 3px solid #f59e0b; }
+
+  /* Map legend */
+  .map-legend {
+    padding: 10px 18px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .map-legend-title { font-family: var(--mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+  .map-leg-items { display: flex; gap: 12px; flex-wrap: wrap; }
+  .map-leg-item { display: flex; align-items: center; gap: 5px; font-size: 0.67rem; color: var(--text-2); font-weight: 500; }
+  .map-leg-pin {
+    width: 12px; height: 12px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 1.5px solid rgba(0,0,0,0.15);
+  }
+
+
+
+  /* ── INLINE EDITABLE CELLS ── */
+  .cell-input {
+    background: none;
+    border: none;
+    border-bottom: 1.5px solid transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    outline: none;
+    width: 100%;
+    min-width: 60px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: border-color 0.15s, background 0.15s;
+    cursor: text;
+  }
+  .cell-input:hover  { border-bottom-color: var(--border); background: var(--bg); }
+  .cell-input:focus  { border-bottom-color: var(--blue); background: var(--blue-bg); }
+
+  .cell-input.price-input {
+    font-family: var(--mono);
+    font-size: 0.73rem;
+    font-weight: 500;
+    color: var(--text);
+    max-width: 100px;
+  }
+  .cell-input.city-input  { font-size: 0.78rem; color: var(--text-2); max-width: 120px; }
+  .cell-input.acre-input  { font-family: var(--mono); font-size: 0.68rem; color: var(--text-3); max-width: 70px; }
+  .cell-input.tenant-input { font-size: 0.72rem; color: var(--text-2); min-width: 120px; }
+  .cell-input.contact-input { font-size: 0.75rem; color: var(--text-2); max-width: 140px; }
+
+  .cell-price-prefix { font-family: var(--mono); font-size: 0.68rem; color: var(--text-3); margin-right: 1px; }
+
+  /* DM selector inline */
+  .dm-select {
+    background: none; border: none; outline: none;
+    font-size: 0.58rem; font-weight: 700; color: white;
+    cursor: pointer; width: 100%; text-align: center;
+    font-family: var(--font); appearance: none; padding: 0;
+  }
+  .dm-select option { color: var(--text); background: var(--surface); font-weight: 600; }
+
+  /* ── Save bar ── */
+  #saveBar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 450;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 8px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--font); font-size: 0.75rem;
+    transform: translateY(100%);
+    transition: transform 0.22s ease;
+    box-shadow: 0 -4px 14px rgba(0,0,0,0.06);
+  }
+  #saveBar.visible { transform: translateY(0); }
+  .save-bar-left { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+  .save-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+  .save-dot.saved { background: var(--green); }
+  .save-dot.error { background: var(--red); }
+  #saveBarBtn {
+    font-family: var(--font); font-size: 0.75rem; font-weight: 600;
+    background: var(--blue); color: white;
+    border: none; border-radius: 6px; padding: 6px 16px; cursor: pointer;
+    transition: opacity 0.12s;
+  }
+  #saveBarBtn:hover { opacity: 0.85; }
+  #saveBarBtn.saving { opacity: 0.6; pointer-events: none; }
+
+  /* ── PASSWORD GATE ── */
+  #lockScreen {
+    position: fixed; inset: 0; z-index: 9999;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #0d1117 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font);
+  }
+  #lockScreen.unlocked { display: none; }
+  .lock-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 48px 40px;
+    width: 360px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    text-align: center;
+    animation: lockIn 0.4s ease;
+  }
+  @keyframes lockIn { from { opacity:0; transform:translateY(20px) scale(0.97); } to { opacity:1; transform:none; } }
+  .lock-logo {
+    width: 52px; height: 52px;
+    background: linear-gradient(135deg, #00c896, #3b6ff5);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+    font-size: 1.4rem;
+  }
+  .lock-title { font-size: 1.3rem; font-weight: 800; color: white; letter-spacing: -0.03em; margin-bottom: 4px; }
+  .lock-sub { font-size: 0.78rem; color: rgba(255,255,255,0.4); margin-bottom: 32px; }
+  .lock-input-wrap { position: relative; margin-bottom: 14px; }
+  .lock-input {
+    width: 100%; padding: 13px 46px 13px 16px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    color: white; font-family: var(--mono); font-size: 1rem;
+    letter-spacing: 0.15em; outline: none;
+    transition: border-color 0.2s, background 0.2s;
+    text-align: center;
+  }
+  .lock-input:focus { border-color: rgba(59,111,245,0.7); background: rgba(255,255,255,0.1); }
+  .lock-input.shake { animation: shake 0.4s ease; border-color: #cf1322 !important; }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)}
+    40%{transform:translateX(8px)} 60%{transform:translateX(-5px)}
+    80%{transform:translateX(5px)}
+  }
+  .lock-eye {
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.35);
+    font-size: 1rem; padding: 0; transition: color 0.15s;
+  }
+  .lock-eye:hover { color: rgba(255,255,255,0.7); }
+  .lock-btn {
+    width: 100%; padding: 13px;
+    background: linear-gradient(135deg, #3b6ff5, #6b46f5);
+    border: none; border-radius: 10px;
+    color: white; font-family: var(--font); font-size: 0.88rem; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.01em;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .lock-btn:hover { opacity: 0.9; }
+  .lock-btn:active { transform: scale(0.98); }
+  .lock-error { font-size: 0.72rem; color: #f87171; margin-top: 10px; min-height: 18px; }
+  .lock-footer { font-size: 0.65rem; color: rgba(255,255,255,0.2); margin-top: 28px; }
+
+  /* ── FIREBASE SETUP BANNER ── */
+  #setupBanner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 500;
+    background: linear-gradient(90deg, #1a1a2e, #0f172a);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding: 10px 24px;
+    display: flex; align-items: flex-start; gap: 12px;
+    font-family: var(--font); font-size: 0.75rem; color: rgba(255,255,255,0.8);
+    line-height: 1.6;
+  }
+  #setupBanner.hidden { display: none; }
+  #setupBanner a { color: #60a5fa; }
+  #setupBanner code { background: rgba(255,255,255,0.12); padding: 1px 6px; border-radius: 4px; font-family: var(--mono); font-size: 0.7rem; }
+  .setup-close { background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.4); font-size: 1rem; flex-shrink: 0; margin-left: auto; padding: 0 0 0 12px; }
+  .setup-close:hover { color: white; }
+  .sync-indicator {
+    position: fixed; bottom: 16px; right: 16px; z-index: 400;
+    font-family: var(--mono); font-size: 0.62rem;
+    padding: 5px 10px; border-radius: 6px;
+    display: flex; align-items: center; gap: 5px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .sync-indicator.saving { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; opacity: 1; }
+  .sync-indicator.saved  { background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; opacity: 1; }
+  .sync-indicator.error  { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; opacity: 1; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+</style>
+</head>
+<body>
+
+<!-- ══ PASSWORD GATE ══════════════════════════════════════════ -->
+<div id="lockScreen">
+  <div class="lock-card">
+    <div class="lock-logo">🏢</div>
+    <div class="lock-title">FlowTrack</div>
+    <div class="lock-sub">FL Commercial Pipeline · Q1 2026</div>
+    <div class="lock-input-wrap">
+      <input class="lock-input" id="lockInput" type="password"
+        placeholder="Enter password"
+        onkeydown="if(event.key==='Enter')checkPassword()"
+        autocomplete="current-password">
+      <button class="lock-eye" id="lockEye" onclick="toggleLockEye()" tabindex="-1">👁</button>
+    </div>
+    <button class="lock-btn" onclick="checkPassword()">Unlock</button>
+    <div class="lock-error" id="lockError"></div>
+    <div class="lock-footer">Ferber Commercial Real Estate</div>
+  </div>
+</div>
+
+<!-- ══ FIREBASE SETUP BANNER (hidden once configured) ════════ -->
+<div id="setupBanner" class="hidden">
+  <div>
+    <strong style="color:white">⚙️ One-time Firebase setup needed for live sync</strong><br>
+    1. Go to <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> → Create project (disable Analytics) → Firestore Database → Start in <strong>test mode</strong><br>
+    2. Project Settings → Add web app → copy the <code>firebaseConfig</code> object → paste it into the <code>FIREBASE_CONFIG</code> variable at the top of this file<br>
+    3. In Firestore, the app will auto-create a <code>pipeline/deals</code> document on first save<br>
+    Until configured, changes save to localStorage only (single-user mode).
+  </div>
+  <button class="setup-close" onclick="document.getElementById('setupBanner').classList.add('hidden')">✕</button>
+</div>
+
+<!-- Sync indicator -->
+<div class="sync-indicator" id="syncIndicator">
+  <div class="sync-dot"></div>
+  <span id="syncLabel">Saved</span>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <rect x="1" y="1" width="5" height="5" rx="1.5" fill="white"/>
+        <rect x="8" y="1" width="5" height="5" rx="1.5" fill="white" opacity=".6"/>
+        <rect x="1" y="8" width="5" height="5" rx="1.5" fill="white" opacity=".6"/>
+        <rect x="8" y="8" width="5" height="5" rx="1.5" fill="white" opacity=".3"/>
+      </svg>
+    </div>
+    FlowTrack
+  </div>
+  <div class="breadcrumb">
+    <span>Q1 2026</span>
+    <span class="breadcrumb-sep">›</span>
+    <span>FL Commercial Land</span>
+  </div>
+  <div class="header-right">
+    <a href="deal-intake-bot.html" style="text-decoration:none">
+      <button class="btn btn-ghost" style="gap:6px">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5C4.5 3.9 5.4 3 6.5 3s2 .9 2 2c0 1.5-2 1.5-2 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6.5" cy="10" r=".6" fill="currentColor"/></svg>
+        🤖 Intake Bot
+      </button>
+    </a>
+    <button class="btn btn-ghost" onclick="exportCSV()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v8M3 6.5l3 3 3-3M1 11h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Export .xlsx
+    </button>
+    <button class="btn btn-ghost" onclick="resetToDefaults()" title="Reset all deals to original defaults" style="color:var(--text-3)">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 1 1 .8 2.4M2 9V6h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Reset
+    </button>
+    <button class="btn btn-ghost" onclick="openStatusManager()" title="Add or manage deal statuses">
+      ⚙ Statuses
+    </button>
+    <button class="btn btn-primary" onclick="openModal()">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v9M1 5.5h9" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Add Deal
+    </button>
+  </div>
+</header>
+
+<div class="summary-bar">
+  <div class="sum-card" style="cursor:pointer" onclick="filterMapByDM('MC')" title="Show Marlon's deals on map">
+    <div class="sum-label">Marlon (MC)</div>
+    <div class="sum-value" id="stat-mc">17</div>
+    <div class="sum-sub" id="sub-mc">$17.69M asking</div>
+  </div>
+  <div class="sum-card" style="cursor:pointer" onclick="filterMapByDM('RP')" title="Show Ryan's deals on map">
+    <div class="sum-label">Ryan (RP)</div>
+    <div class="sum-value" id="stat-rp">11</div>
+    <div class="sum-sub" id="sub-rp">$11.7M asking</div>
+  </div>
+  <div class="sum-card" style="cursor:pointer" onclick="filterMapByDM('TM')" title="Show Tom's deals on map">
+    <div class="sum-label">Tom (TM)</div>
+    <div class="sum-value" id="stat-tm">1</div>
+    <div class="sum-sub" id="sub-tm">Active site</div>
+  </div>
+  <div class="sum-card">
+    <div class="sum-label">Offers / LOIs Out</div>
+    <div class="sum-value" id="stat-active" style="color:var(--blue)">5</div>
+    <div class="sum-sub">$14.59M total</div>
+  </div>
+  <div class="sum-card" style="cursor:pointer" onclick="filterMapByDM('all')" title="Show all deals on map">
+    <div class="sum-label">$ Deals Seen</div>
+    <div class="sum-value" id="stat-deals-seen" style="color:var(--slate); font-size:1.1rem">—</div>
+    <div class="sum-sub" id="sub-deals-seen">All pipeline incl. dead</div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <input class="toolbar-title" value="Active Deal Pipeline" spellcheck="false">
+  <div class="filters">
+    <button class="fchip active" onclick="applyFilter(this,'all')">All</button>
+    <button class="fchip" onclick="applyFilter(this,'MC')">Marlon</button>
+    <button class="fchip" onclick="applyFilter(this,'RP')">Ryan</button>
+    <button class="fchip" onclick="applyFilter(this,'TM')">Tom</button>
+    <button class="fchip" onclick="applyFilter(this,'offer')">Offers Out</button>
+    <button class="fchip" onclick="applyFilter(this,'potential')">Potential</button>
+    <button class="fchip" onclick="applyFilter(this,'dead')">Dead</button>
+    <div class="fchip-divider"></div>
+    <button class="fchip heat-hot"  onclick="applyFilter(this,'heat-hot')" title="Hot — follow up within 7 days">● Hot</button>
+    <button class="fchip heat-warm" onclick="applyFilter(this,'heat-warm')" title="Warm — follow up within 14 days">● Warm</button>
+    <button class="fchip heat-cold" onclick="applyFilter(this,'heat-cold')" title="Cold — follow up within 30 days">● Cold</button>
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input class="search-input" placeholder="Search deals, cities, contacts…" oninput="searchDeals(this.value)">
+  </div>
+</div>
+
+<div class="pipeline-bar-wrap">
+  <div class="pipeline-bar" id="pipelineBar"></div>
+  <div class="pipeline-legend" id="pipelineLegend"></div>
+</div>
+
+<!-- MAP SECTION -->
+<div class="map-section" id="mapSection">
+  <div class="map-header" onclick="toggleMap()">
+    <div class="map-header-left">
+      <div class="map-icon">🗺️</div>
+      <div>
+        <div class="map-title">Deal Map — Florida</div>
+        <div class="map-subtitle" id="mapSubtitle">35 sites across FL · <span id="mapDMFilter" style="color:var(--blue);font-weight:600">All DMs shown</span></div>
+      </div>
+    </div>
+    <div class="map-controls" onclick="event.stopPropagation()">
+      <button class="map-toggle-btn active" id="btnSatellite" onclick="setMapLayer('satellite')">🛰 Satellite</button>
+      <button class="map-toggle-btn" id="btnStreet" onclick="setMapLayer('street')">🗺 Street</button>
+      <button class="map-toggle-btn" id="btnTerrain" onclick="setMapLayer('terrain')">🏔 Terrain</button>
+      <div style="width:1px;height:16px;background:rgba(255,255,255,0.2);margin:0 4px;align-self:center"></div>
+      <button class="map-toggle-btn" id="btnPinMode" onclick="togglePinMode()" title="Click a location on the map to create a new deal">📍 Pin Deal</button>
+    </div>
+    <span class="map-chevron open" id="mapChevron">▶</span>
+  </div>
+  <div id="movePinBar">
+    <span class="mbar-label">📍 Drag the pin — or click the map — to reposition it</span>
+    <button class="mbar-btn" onclick="confirmMovePin(window._movingPinId)">✓ Done</button>
+    <button class="mbar-btn cancel" onclick="cancelMovePin(window._movingPinId)">✕ Cancel</button>
+  </div>
+  <div class="map-body" id="mapBody">
+    <div id="map-container"></div>
+    <!-- floating map search -->
+    <div id="mapSearchBox" onclick="event.stopPropagation()">
+      <div id="mapSearchInputRow">
+        <span id="mapSearchIcon">🔍</span>
+        <input id="mapSearchInput" placeholder="Search address or intersection…" autocomplete="off"
+          oninput="onMapSearch(this.value)"
+          onkeydown="if(event.key==='Escape'){clearMapSearch()}"
+        >
+        <button id="mapSearchClear" onclick="clearMapSearch()" title="Clear">✕</button>
+      </div>
+      <div id="mapSearchResults"></div>
+    </div>
+    <div class="map-legend">
+      <span class="map-legend-title">Deal Manager</span>
+      <div class="map-leg-items">
+        <div class="map-leg-item"><div class="map-leg-pin" style="background:#00c896"></div>Marlon (MC)</div>
+        <div class="map-leg-item"><div class="map-leg-pin" style="background:#3b6ff5"></div>Ryan (RP)</div>
+        <div class="map-leg-item"><div class="map-leg-pin" style="background:#f59e0b"></div>Tom (TM)</div>
+        <div class="map-leg-item"><div class="map-leg-pin" style="background:#8896aa"></div>Dead</div>
+      </div>
+      <span class="map-legend-title" style="margin-left:16px">Status Ring</span>
+      <div class="map-leg-items">
+        <div class="map-leg-item"><div style="width:10px;height:10px;border-radius:50%;background:#10b981;border:2px solid white;box-shadow:0 0 0 1.5px #10b981"></div>Offer Sent</div>
+        <div class="map-leg-item"><div style="width:10px;height:10px;border-radius:50%;background:#3b6ff5;border:2px solid white;box-shadow:0 0 0 1.5px #3b6ff5"></div>LOI Sent</div>
+        <div class="map-leg-item"><div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;border:2px solid white;box-shadow:0 0 0 1.5px #f59e0b"></div>Under Contract</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="main" id="mainContent"></div>
+
+<!-- Save bar -->
+<div id="saveBar">
+  <div class="save-bar-left">
+    <div class="save-dot" id="saveDot"></div>
+    <span id="saveBarMsg">Unsaved changes</span>
+  </div>
+  <button id="saveBarBtn" onclick="manualSave()">💾 Save Changes</button>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>New Deal</h2>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-grid">
+      <div class="mf full"><label>Property / Crossroads</label><input id="m-cross" placeholder="e.g. Gunn Hwy & Anderson"></div>
+      <div class="mf"><label>City</label><input id="m-city" placeholder="Tampa"></div>
+      <div class="mf"><label>State</label><input id="m-state" value="FL"></div>
+      <div class="mf"><label>Deal Manager</label>
+        <select id="m-dm"><option value="MC">MC — Marlon</option><option value="RP">RP — Ryan</option><option value="TM">TM — Tom</option></select>
+      </div>
+      <div class="mf"><label>Status</label>
+        <select id="m-status"></select>
+      </div>
+      <div class="mf"><label>Asking Price</label><input id="m-price" placeholder="e.g. 2750000"></div>
+      <div class="mf"><label>Acreage</label><input id="m-acreage" placeholder="e.g. 5.03"></div>
+      <div class="mf"><label>Potential Tenants</label><input id="m-tenants" placeholder="7-Eleven, Circle K…"></div>
+      <div class="mf"><label>Contact</label><input id="m-contact" placeholder="Name or broker"></div>
+      <div class="mf"><label>Contact Email</label><input id="m-email" placeholder="email@example.com"></div>
+      <div class="mf"><label>Owner Phone</label><input id="m-phone" placeholder="813-000-0000"></div>
+      <div class="mf"><label>IP End Date</label><input id="m-ipend" type="date"></div>
+      <div class="mf full"><label>Notes</label><textarea id="m-notes" placeholder="Initial observations…"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="addDeal()">Add Deal</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAP PIN MODAL -->
+<div class="modal-overlay" id="pinModal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-head">
+      <div>
+        <h2>📍 New Deal from Map</h2>
+        <div id="pinCoordLabel" style="font-size:0.72rem;color:var(--text-3);margin-top:2px;font-family:var(--mono)"></div>
+      </div>
+      <button class="modal-close" onclick="closePinModal()">✕</button>
+    </div>
+    <div style="padding:0 0 14px;border-bottom:1px solid var(--border);margin-bottom:14px">
+      <div style="font-size:0.72rem;font-weight:600;color:var(--text-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Search Address / Crossroads</div>
+      <div style="display:flex;gap:8px">
+        <input id="pin-search" style="flex:1;font-family:var(--font);font-size:0.82rem;padding:7px 10px;border:1px solid var(--border);border-radius:8px;outline:none" placeholder="e.g. Gunn Hwy & Anderson Rd, Tampa FL"
+          onkeydown="if(event.key==='Enter')searchPinAddress()">
+        <button class="btn btn-ghost" onclick="searchPinAddress()" style="flex-shrink:0;white-space:nowrap">🔍 Search</button>
+      </div>
+      <div id="pin-search-results" style="margin-top:6px"></div>
+    </div>
+    <div class="modal-grid">
+      <div class="mf full"><label>Property / Crossroads</label><input id="pm-cross" placeholder="e.g. Gunn Hwy & Anderson"></div>
+      <div class="mf"><label>City</label><input id="pm-city" placeholder="Tampa"></div>
+      <div class="mf"><label>State</label><input id="pm-state" value="FL"></div>
+      <div class="mf"><label>Deal Manager</label>
+        <select id="pm-dm"><option value="MC">MC — Marlon</option><option value="RP">RP — Ryan</option><option value="TM">TM — Tom</option></select>
+      </div>
+      <div class="mf"><label>Status</label>
+        <select id="pm-status"></select>
+      </div>
+      <div class="mf"><label>Asking Price</label><input id="pm-price" placeholder="e.g. 2750000"></div>
+      <div class="mf"><label>Acreage</label><input id="pm-acreage" placeholder="e.g. 5.03"></div>
+      <div class="mf"><label>Potential Tenants</label><input id="pm-tenants" placeholder="7-Eleven, Circle K…"></div>
+      <div class="mf"><label>Contact</label><input id="pm-contact" placeholder="Name or broker"></div>
+      <div class="mf"><label>Contact Email</label><input id="pm-email" placeholder="email@example.com"></div>
+      <div class="mf full"><label>Notes</label><textarea id="pm-notes" placeholder="Initial observations…"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closePinModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="addDealFromPin()">📍 Add Deal + Pin</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGE STATUSES MODAL -->
+<div class="modal-overlay" id="statusModal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-head">
+      <h2>⚙ Manage Statuses</h2>
+      <button class="modal-close" onclick="document.getElementById('statusModal').classList.remove('open')">✕</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <div class="df-label" style="margin-bottom:8px">Current Statuses</div>
+      <div id="status-list"></div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px">
+      <div class="df-label" style="margin-bottom:8px">Add New Status</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="ns-label" class="df-input" style="flex:1;min-width:120px" placeholder="Label e.g. Due Diligence">
+        <input id="ns-color" type="color" value="#8b5cf6" style="width:36px;height:34px;border:1px solid var(--border);border-radius:6px;cursor:pointer;padding:2px">
+        <button class="btn btn-primary" onclick="addCustomStatus()" style="white-space:nowrap">+ Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let STATUSES = {
+  'offer-sent':{ label:'Offer Sent',     cls:'s-offer-sent', dot:'#10b981' },
+  'loi-sent':  { label:'LOI Sent',       cls:'s-loi-sent',   dot:'#3b6ff5' },
+  'prospect':  { label:'Prospect',       cls:'s-prospect',   dot:'#7c5af6' },
+  'potential': { label:'Potential Site', cls:'s-potential',  dot:'#0284c7' },
+  'uc':        { label:'Under Contract', cls:'s-uc',         dot:'#f59e0b' },
+  'dead':      { label:'Dead',           cls:'s-dead',       dot:'#94a3b8' },
+};
+const BUILTIN_STATUSES = Object.keys(STATUSES);
+
+// Load any custom statuses from localStorage
+(function loadCustomStatuses() {
+  try {
+    const custom = JSON.parse(localStorage.getItem('customStatuses') || '{}');
+    Object.assign(STATUSES, custom);
+  } catch(e) {}
+})();
+const DM_COLOR = { MC:'#00c896', RP:'#3b6ff5', TM:'#f59e0b' };
+
+function fmtPrice(p) {
+  if (!p) return null;
+  const n = parseFloat(String(p).replace(/[^0-9.]/g,''));
+  return isNaN(n)||n===0 ? null : n;
+}
+
+const SEED_DEALS = [
+  // ── MC Active ──
+  {id:1,dm:'MC',status:'offer-sent',crossroads:'Wilds & US 98',city:'Dade City',state:'FL',acreage:'10.96',price:1940000,tenants:'7-Eleven, Circle K',contact:'Tripp Brown',email:'tripp@bayridgecommercial.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 11, 2026 · 4:15 PM] 3.10.26 waiting to hear back from Tripp. Apparently the sellers are still going through comps with the broker\n[Legacy note] 2.22.26 - Tripp spoke with broker, should have comments on PSA soon. \n2.10.26 - Tripp got a hold of the owner. The broker is a Newmark broker.',initialNotes:'Potentially 200k/ac'},
+  {id:2,dm:'MC',status:'potential',crossroads:'Two Rdgs Rd & 56',city:'Wesley Chapel',state:'FL',acreage:'5.03',price:null,tenants:'4OP',contact:'Kyle Mahoney / RD',email:'kyle.mahoney@colliers.com',phone:'',ipEnd:'',rating:null,afterDiving:"[Mar 23, 2026 · 10:35 AM] Bower's is reaching out to the owner... price point was $1.5/AC last he spoke, trying to see if it is worth writing up an offer",initialNotes:'2.6.26 called owners and lvm'},
+  {id:3,dm:'MC',status:'prospect',crossroads:'Twisted Oaks',city:'',state:'FL',acreage:'',price:null,tenants:'-',contact:'Steven Pike',email:'spike@colter.com',phone:'',ipEnd:'',rating:null,afterDiving:'Pike will get back to me if they become available. Trying to work it out with original buyer.',initialNotes:'Original site from Pike back in 2025 — was UC with developer supposed to close 12/30/25'},
+  {id:4,dm:'MC',status:'potential',crossroads:'SWC SR 50 & CR 565',city:'Groveland',state:'FL',acreage:'45.91',price:null,tenants:'Multiple OP',contact:'Joe Skinner',email:'-',phone:'',ipEnd:'',rating:5,afterDiving:'Called early Jan, no answer. Sent letter 1/16.',initialNotes:'THE WM site in Groveland. Taylor made contact back in Feb'},
+  {id:5,dm:'MC',status:'potential',crossroads:'Gunn Hwy & Anderson',city:'Tampa',state:'FL',acreage:'4.5',price:null,tenants:'7-Eleven, QSR',contact:'RD',email:'-',phone:'',ipEnd:'',rating:null,afterDiving:"Called 2.6.26 — wasn't a good number.",initialNotes:'RP thinks it could be a C-store and QSR. Interesting layout with CVS and strip center on same lot'},
+  {id:6,dm:'MC',status:'potential',crossroads:'N Mobley & Gunn Hwy',city:'Odessa',state:'FL',acreage:'9',price:null,tenants:'4OP',contact:'Dimitri Artzbushev',email:'Dimitri@firsttampa.com',phone:'813-363-9764',ipEnd:'',rating:null,afterDiving:'',initialNotes:'Dimitri & partner own 50+ acres with PD zoning — 9 acres on NEC for commercial but zoning says no c-store'},
+  {id:7,dm:'MC',status:'potential',crossroads:'McMullen Booth Rd & 10th St S',city:'Safety Harbor',state:'FL',acreage:'30.24',price:null,tenants:'3OP',contact:'Jeff Kruse',email:'jkruse@kolter.com',phone:'',ipEnd:'',rating:null,afterDiving:'2.10.26 Jeff adjusting siteplan to see if Sprouts and CFA could work instead of Publix.',initialNotes:''},
+  {id:8,dm:'MC',status:'potential',crossroads:'N Bay St & US 19',city:'Eustis',state:'FL',acreage:'5.72',price:null,tenants:'7-Eleven',contact:'Marlon Champion',email:'-',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:'MC seedpoint from MA'},
+  {id:9,dm:'MC',status:'potential',crossroads:'Morning Side Dr & US 301',city:'Dade City',state:'FL',acreage:'13.07',price:5000000,tenants:'Multiple OP',contact:'Chris Bowers',email:'Chris@thedirtdog.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:"Owners want a high number — we like the dirt but only want to buy the front portion"},
+  {id:10,dm:'MC',status:'potential',crossroads:'Star Rd & Sunshine Grove Rd',city:'Brooksville',state:'FL',acreage:'7',price:1000000,tenants:'7-Eleven',contact:'Tripp Brown',email:'tripp@bayridgecommercial.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:'Circle K passed. Was UC for $1M, going to landbank the rest.'},
+  {id:11,dm:'MC',status:'potential',crossroads:'SEC SR 54 & Meadow Pointe Blvd',city:'Wesley Chapel',state:'FL',acreage:'10.49',price:null,tenants:'7-Eleven',contact:'Mary Ashy',email:'mashy@elitelandsolutions.com',phone:'954-816-6535',ipEnd:'',rating:null,afterDiving:"Called 2.4.26. Answered, said he couldn't hear me and hung up. Shot him a text.",initialNotes:''},
+  {id:12,dm:'MC',status:'potential',crossroads:'Porter Rd & Hamlin Groves Tr',city:'Southwest Orange',state:'FL',acreage:'4+',price:null,tenants:'7-Eleven',contact:'Mary Ashy',email:'mashy@elitelandsolutions.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 23, 2026 · 10:20 AM] Mary was working with Richard on this.. not sure where it ended up going',initialNotes:'7-Eleven Confirmed?'},
+  {id:13,dm:'MC',status:'uc',crossroads:'Blanton & I-75',city:'Dade City',state:'FL',acreage:'38',price:3650000,tenants:'7-Eleven, Circle K, Buccees',contact:'Tony Mosco',email:'tony@suncoastmortgagefirm.com',phone:'',ipEnd:'2026-05-29',rating:null,afterDiving:'Under Contract - to be killed. After meeting with Eminent Domain lawyer — nothing that can be done.',initialNotes:'Met with DOT, gave great insight on interchange projected 10-year plan.'},
+  {id:14,dm:'MC',status:'offer-sent',crossroads:'SWC US 441 & W Miller St',city:'Fruitland Park',state:'FL',acreage:'2.45',price:1825000,tenants:'',contact:'Tyler Hicks',email:'',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 11, 2026 · 4:14 PM] 3.10.26 Tyler got a hold of the Resi piece. 475k for the resi. 1.35M for the commercial\n[Mar 11, 2026 · 4:14 PM] 3.7.26 Mary wanted to pivot from the auto body shop to the resi piece. Tyler and I are tag teaming to see if we can take down the resi piece\n[Legacy note] 3.3.36 spoke with Mary Ashy about the site. thinks we are good to go without the auto, but need to get the resi piece to the south.\n2.24.26 Offer sent to tyler  675k for auto and 1.35m for the corner',initialNotes:'Southwest corner site with potential zoning concerns for SFR parcel conversion. Previously evaluated multiple times.'},
+  {id:15,dm:'MC',status:'offer-sent',crossroads:'State Road 56 / Morris Bridge Rd',city:'Pasco County',state:'FL',acreage:'14.87',price:6700000,tenants:'',contact:'Jason Sasser',email:'jason@tampaland.com',phone:'',ipEnd:'',rating:null,afterDiving:"3.3.26 - spoke with Sasser, hoping to get offer out tomorrow. Apparently family won't want to move on anything for another ~60 days",initialNotes:''},
+  {id:16,dm:'MC',status:'potential',crossroads:'Cortez Boulevard (Boyscout)',city:'Spring Hill',state:'FL',acreage:'50',price:17000000,tenants:'Costco',contact:'Patrick Bernman',email:'Patrick.Berman@cushwake.com',phone:'',ipEnd:'',rating:null,afterDiving:'3.4.26 - team had convo about opportunities. Will be a lengthy process, but if sellers are willing to work with us, it will be fruitful.',initialNotes:''},
+  {id:17,dm:'MC',status:'offer-sent',crossroads:'Gunn Hwy & Hwy 54',city:'Odessa',state:'FL',acreage:'.73',price:1695000,tenants:'Wells Fargo',contact:'Alex Ward',email:'alex@thedirtdog.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 19, 2026 · 12:31 PM] offer sent 3.18.26\n[Legacy note] Initial offer written by RD sent to Marlon on 3.18.26',initialNotes:''},
+  {id:18,dm:'MC',status:'offer-sent',crossroads:'33 N & Tomkow Rd',city:'Lakeland',state:'FL',acreage:'9',price:1600000,tenants:'7-Eleven',contact:'Lance Cobb',email:'lance.cobb@svn.com',phone:'941-356-4781',ipEnd:'',rating:null,afterDiving:'[Mar 19, 2026 · 12:28 PM] submitted offer 3.19.26',initialNotes:''},
+  {id:19,dm:'MC',status:'potential',crossroads:'33 N & Church Rd',city:'Polk City',state:'FL',acreage:'1.97',price:1800000,tenants:"7-Eleven",contact:"Greg D'Souza",email:'',phone:'8133006261',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:20,dm:'MC',status:'potential',crossroads:'Fort King Road',city:'Dade City',state:'FL',acreage:'17.29',price:null,tenants:'Walmart, 7-Eleven',contact:'Chris Bowers',email:'Chris@thedirtdog.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:21,dm:'MC',status:'potential',crossroads:'Hwy 50 & East Ave',city:'Clermont',state:'FL',acreage:'1.95',price:2200000,tenants:'7-Eleven',contact:'Joe Skinner',email:'jskinner@maurycarter.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:22,dm:'MC',status:'offer-sent',crossroads:'Waterford Lakes Pkwy & Woodbury Rd',city:'Orlando',state:'FL',acreage:'2.80',price:2600000,tenants:'7-Eleven',contact:'Lawson Dann',email:'lawson.dann@foundrycommercial.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  // ── RP Active ──
+  {id:23,dm:'RP',status:'offer-sent',crossroads:'Alexander & Exit 22 (I-4)',city:'Plant City',state:'FL',acreage:'2.84',price:2200000,tenants:'7-Eleven, Circle K',contact:'Dimitri Artzbushev',email:'Dimitri@firsttampa.com',phone:'813-363-9764',ipEnd:'',rating:null,afterDiving:'2.10.26 Dimitri waiting on easement approval. Follow up in two weeks.',initialNotes:'Dimitri struggling with Circle K'},
+  {id:24,dm:'RP',status:'offer-sent',crossroads:'Burr Oak Blvd & E Irlo Bronson',city:'St Cloud',state:'FL',acreage:'13.18',price:6500000,tenants:'QSR Outparcels',contact:'Joe Skinner',email:'bill@conoleyfruit.com',phone:'',ipEnd:'',rating:5,afterDiving:'Emailed 2.6.26 follow up in two weeks.',initialNotes:'Site across from WM deal, would be great to secure those parcels'},
+  {id:25,dm:'RP',status:'potential',crossroads:'Ridgewood Lakes Blvd & US-27',city:'Davenport',state:'FL',acreage:'',price:null,tenants:'-',contact:'Hawk Capital',email:'nick@hawkpropertiesllc.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 4, 2026 · 9:47 AM] Looks like we may be selected next week.. Need to be able to move fast if we do.',initialNotes:''},
+  {id:26,dm:'RP',status:'potential',crossroads:'W Pipkin Rd & Waring Rd',city:'Lakeland',state:'FL',acreage:'2.48',price:1200000,tenants:'',contact:'Gary Ralston',email:'gary.ralston@saundersrealestate.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:27,dm:'RP',status:'offer-sent',crossroads:'4340 US 27 N',city:'Avon Park',state:'FL',acreage:'2.94',price:1945000,tenants:'7-Eleven, Circle K',contact:'Tripp Brown',email:'tripp@bayridgecommercial.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 23, 2026 · 9:58 AM] Tripp to get us back signed LOI so i can start writing up PSA',initialNotes:''},
+  {id:28,dm:'RP',status:'prospect',crossroads:'Pine Island Rd & Saddlewood Ln',city:'Cape Coral',state:'FL',acreage:'24.62',price:null,tenants:'-',contact:'Robby Dillard',email:'-',phone:'',ipEnd:'',rating:null,afterDiving:'Called 1.29.26 lvm, follow up in two weeks.',initialNotes:'Across from new WM supercenter in permitting.'},
+  {id:29,dm:'RP',status:'prospect',crossroads:'77th St & 301',city:'Parrish',state:'FL',acreage:'12.78',price:null,tenants:'-',contact:'Robby Dillard',email:'-',phone:'',ipEnd:'',rating:null,afterDiving:'Called 1.29.26 lvm, follow up in two weeks.',initialNotes:'They have to install a signal at their south end which is at this property.'},
+  {id:30,dm:'RP',status:'offer-sent',crossroads:'NWC Alico Road & Oriole Road',city:'Lehigh Acres',state:'FL',acreage:'30.65',price:13000000,tenants:'',contact:'Max Malloy',email:'mmolloy@lsicompanies.com',phone:'239.848.2050',ipEnd:'',rating:5,afterDiving:"3.3.26 - RP/RD teams call with the LSI guys. They sent us DD, we need to go through it. They also sent us two other sites from the multi developers (Estero and Winkler Rd)\n2.24.26 LOI written for 13M\nOff-market 30.65 acre site with Alico Oriole West MPD zoning and eagle management plan included.",initialNotes:''},
+  {id:31,dm:'RP',status:'offer-sent',crossroads:'Gladiolus Drive & Winkler Rd',city:'Lee County',state:'FL',acreage:'7',price:6750000,tenants:'Circle K, 2 OPs',contact:'Max Molloy',email:'mmolloy@lsicompanies.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 4, 2026 · 10:11 AM] The Residential Group is the multi family group\n[Mar 4, 2026 · 10:10 AM] Circle K is interested... MC mentioned it could fit a NHWM\n[Legacy note] Multifamily group taking down the whole pad... they have 7 AC for 7.5M. Hoping to take down for 7M for 6.5M',initialNotes:''},
+  {id:32,dm:'RP',status:'potential',crossroads:'N Narcoossee Rd & Cyrils Dr',city:'St Cloud',state:'FL',acreage:'9.35',price:null,tenants:'Big Box',contact:'Joe Skinner',email:'jskinner@maurycarter.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 23, 2026 · 10:42 AM] funky site.. potential JV.. waiting for Skinner to get locked in pricing',initialNotes:''},
+  {id:33,dm:'RP',status:'potential',crossroads:'Hwy 27 & Section 7 Airport Rd',city:'Haines City',state:'FL',acreage:'20.09',price:null,tenants:'Home Depot + Outparcels',contact:'Joe Skinner',email:'jskinner@maurycarter.com',phone:'',ipEnd:'',rating:null,afterDiving:'[Mar 23, 2026 · 10:42 AM] skinner to get pricing from Robby in his office\n[Legacy note] Was trying to do a HD deal... all outparcels were spoken for, but HD killed the deal and they ran. This parcel or the south parcel',initialNotes:''},
+  {id:34,dm:'RP',status:'potential',crossroads:'Nova Rd & E Irlo Bronson Memorial Hwy',city:'St Cloud',state:'FL',acreage:'30',price:null,tenants:'Walmart',contact:'Joe Skinner',email:'jskinner@maurycarter.com',phone:'',ipEnd:'',rating:null,afterDiving:'Bauknight Family - they own all of the land surrounding this area. They are flexible and would be willing to sell small or large chunks for the right price',initialNotes:''},
+  // ── TM Active ──
+  {id:35,dm:'TM',status:'potential',crossroads:'Old Jennings & Blanding Blvd',city:'Jacksonville',state:'FL',acreage:'22.98',price:5000000,tenants:'Circle K',contact:'Ethan Ariav',email:'',phone:'',ipEnd:'',rating:null,afterDiving:'Circle K has interest in the site, waiting to hear from Ethan/Stoneweg.',initialNotes:'Could be a potential retail site similar to the one directly south (Pet Paradise, QSR, Strip Center, Hotel)'},
+  // ── Dead ──
+  {id:36,dm:'MC',status:'dead',crossroads:'5711 W Waters Ave',city:'Tampa',state:'FL',acreage:'1.73',price:2750000,tenants:'7-Eleven',contact:'Charlie Bodine',email:'charlie@charliebodine.com',phone:'',ipEnd:'',rating:null,afterDiving:"[Mar 11, 2026 · 3:16 PM] 3.10.26 Sent Counter back to Charlie agreeing on all terms (except the change of seller pays for title if they are choosing)\n[Mar 11, 2026 · 3:15 PM] 3.7.26 Charlie countered back (2.75M, 50k deposits, 25k in addition to purchase price for extensions, 120 day IP)\n[Legacy note] 3.3.26 Counter back to Charlie (2.75m, 50k deposits, 150 day ip) \n2.18.26 spoke to Charlie — going to have an answer early next week, looks like we're in driver position.",initialNotes:''},
+  {id:37,dm:'MC',status:'dead',crossroads:'Wolf Branch Rd & US 441',city:'Mt Dora',state:'FL',acreage:'13.1',price:4500000,tenants:'Aldi, QSR',contact:'Jason Kaiser',email:'Jason.Kaiser@SRSRE.com',phone:'',ipEnd:'',rating:null,afterDiving:'2.6.26 Looking at other offer at $5.1M.',initialNotes:'SRS Site, great Aldi/Sprouts deal with a few Ops'},
+  {id:38,dm:'MC',status:'dead',crossroads:'651 W Washington St',city:'Chattahoochee',state:'FL',acreage:'0.77',price:null,tenants:'7-Eleven',contact:'Quinn Mitchell',email:'quinn@americannetlease.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:"Old Hardee's. Reached out to Quinn re: AC to the west. Potential 7-Eleven Site"},
+  {id:39,dm:'MC',status:'dead',crossroads:'10831 Cross Creek Blvd',city:'Tampa',state:'FL',acreage:'2.48',price:1250000,tenants:'7-Eleven',contact:'Hayle Short',email:'hayle.short@marcusmillichap.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:"Sent instead of 18202 Meadows Rd. Better frontage but 'QSR likely'"},
+  {id:40,dm:'MC',status:'dead',crossroads:'18202 Meadows Rd',city:'Tampa',state:'FL',acreage:'3.14',price:1250000,tenants:'7-Eleven',contact:'Hayle Short',email:'hayle.short@marcusmillichap.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:'PD for carwash, seller willing to give time to rezone'},
+  {id:41,dm:'RP',status:'dead',crossroads:'W Christina Blvd & FL Ave S',city:'Lakeland',state:'FL',acreage:'12.11',price:4100000,tenants:'2OP + Big Box',contact:'Shaun Mayberry',email:'shaun.mayberry@franklinst.com',phone:'',ipEnd:'',rating:null,afterDiving:"2.23.26 Seller now won't take anything sub $6M... 2.4.26 — seller exploring multi group at $5.2M that doesn't need rezoning. Follow up end of Feb.",initialNotes:"Old multifamily site, won't pencil anymore given rents in Lakeland"},
+  {id:42,dm:'RP',status:'dead',crossroads:'Pine Island Rd & N Tamiami Trl',city:'Fort Myers',state:'FL',acreage:'7.21',price:null,tenants:'-',contact:'Hawk Capital',email:'nick@hawkpropertiesllc.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:43,dm:'RP',status:'dead',crossroads:'2701 N River Rd',city:'Venice',state:'FL',acreage:'1.76',price:2200000,tenants:'',contact:'Brett Low',email:'brettlow@lqcre.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:44,dm:'RP',status:'dead',crossroads:'2907 N River Rd',city:'Venice',state:'FL',acreage:'7.12',price:null,tenants:'-',contact:'Brett Low',email:'brettlow@lqcre.com',phone:'',ipEnd:'',rating:null,afterDiving:'',initialNotes:''},
+  {id:45,dm:'RP',status:'dead',crossroads:'Winkler & Veronica S Shoemaker',city:'Fort Myers',state:'FL',acreage:'10',price:5000000,tenants:'',contact:'Jon Greco',email:'jon@aldllc.com',phone:'',ipEnd:'',rating:null,afterDiving:"Jon believes they have ~$7M into the property and doesn't want to submit anything lower.",initialNotes:'Owner bought for Multi Family, never developed'},
+  {id:46,dm:'MC',status:'dead',crossroads:'Lock St & US Hwy 98',city:'Dade City',state:'FL',acreage:'1.31',price:null,tenants:'Circle K',contact:'Tripp Brown',email:'tripp@bayridgecommercial.com',phone:'',ipEnd:'',rating:null,afterDiving:"2.11.26 looks like 7-Eleven is going to pass.",initialNotes:"Old site that Circle K couldn't get comfortable with the storm water size"},
+  {id:47,dm:'MC',status:'dead',crossroads:'Moon Lake & 52',city:'New Port Richey',state:'FL',acreage:'22.59',price:null,tenants:'7-Eleven, Circle K',contact:'Tripp Brown',email:'',phone:'',ipEnd:'',rating:null,afterDiving:'False alarm from Circle K.',initialNotes:'Rebuild + retail for Circle K'},
+  {id:48,dm:'MC',status:'dead',crossroads:'Hwy 54 & Livingston Rd',city:'Land O Lakes',state:'FL',acreage:'4',price:1000000,tenants:'7-Eleven',contact:'Carol Bauman',email:'',phone:'',ipEnd:'',rating:null,afterDiving:'Will just dropped it from contract, listed for $1M.',initialNotes:''},
+  {id:49,dm:'TM',status:'dead',crossroads:'SE 173rd & US 441',city:'Belleview',state:'FL',acreage:'10.3',price:null,tenants:'',contact:'Tyler Hicks',email:'',phone:'',ipEnd:'',rating:null,afterDiving:"Just out of the main thoroughfare — not enough national retailers interested.",initialNotes:''},
+];
+
+// ── PERSISTENCE ──────────────────────────────────────────────
+// ══ FIREBASE CONFIG ══════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAIlHVSBz3JgW5q1MWRdK7zXJXvBumkz-Q",
+  authDomain: "ferber-pipeline.firebaseapp.com",
+  projectId: "ferber-pipeline",
+  storageBucket: "ferber-pipeline.firebasestorage.app",
+  messagingSenderId: "708282634505",
+  appId: "1:708282634505:web:b5b969346766165879c3d8"
+};
+
+// ══ PERSISTENCE LAYER ═════════════════════════════════════════════════════
+const STORAGE_KEY   = 'ftDeals_v2';
+const LS_SESSION    = 'ftUnlocked';
+let   db            = null;
+let   saveTimer     = null;
+let   unsubscribe   = null;
+let   isFirebaseMode = false;
+
+// ── Password ──────────────────────────────────────────────────────────────
+function checkPassword() {
+  const val = document.getElementById('lockInput').value;
+  if (val === 'ferber2026') {
+    sessionStorage.setItem(LS_SESSION, '1');
+    document.getElementById('lockScreen').classList.add('unlocked');
+    document.getElementById('lockError').textContent = '';
+    initApp();
+  } else {
+    const inp = document.getElementById('lockInput');
+    inp.classList.remove('shake');
+    void inp.offsetWidth;
+    inp.classList.add('shake');
+    document.getElementById('lockError').textContent = 'Incorrect password — try again';
+    inp.value = '';
+    setTimeout(() => inp.classList.remove('shake'), 500);
+  }
+}
+
+function toggleLockEye() {
+  const inp = document.getElementById('lockInput');
+  const eye = document.getElementById('lockEye');
+  if (inp.type === 'password') { inp.type = 'text'; eye.textContent = '🙈'; }
+  else { inp.type = 'password'; eye.textContent = '👁'; }
+}
+
+// ── Firebase init ─────────────────────────────────────────────────────────
+function initFirebase() {
+  if (!FIREBASE_CONFIG) return false;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    isFirebaseMode = true;
+    document.getElementById('setupBanner').classList.add('hidden');
+    return true;
+  } catch(e) {
+    console.warn('Firebase init failed', e);
+    return false;
+  }
+}
+
+// ── Sync indicator ────────────────────────────────────────────────────────
+function showSync(state, msg) {
+  const el = document.getElementById('syncIndicator');
+  const lb = document.getElementById('syncLabel');
+  el.className = 'sync-indicator ' + state;
+  lb.textContent = msg;
+  if (state === 'saved') setTimeout(() => { el.style.opacity = '0'; }, 2000);
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────
+function saveDeals() {
+  // Always keep localStorage as fallback
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ deals, nextId }));
+  } catch(e) {}
+
+  if (!isFirebaseMode) {
+    // Auto-mark saved after localStorage write
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => markSaved(false), 800);
+    return;
+  }
+
+  clearTimeout(saveTimer);
+  showSync('saving', 'Saving…');
+  saveTimer = setTimeout(async () => {
+    try {
+      await db.collection('pipeline').doc('deals').set({ deals, nextId, updatedAt: new Date().toISOString() });
+      showSync('saved', '✓ Synced');
+      markSaved(true);
+    } catch(e) {
+      console.error('Firebase save error', e);
+      showSync('error', '⚠ Save failed');
+    }
+  }, 800); // debounce rapid edits
+}
+
+// ── Load & real-time listener ─────────────────────────────────────────────
+async function loadDealsFromFirebase() {
+  try {
+    const doc = await db.collection('pipeline').doc('deals').get();
+    if (doc.exists) {
+      const data = doc.data();
+      if (Array.isArray(data.deals) && data.deals.length) {
+        deals  = data.deals;
+        nextId = data.nextId || (Math.max(...data.deals.map(d=>d.id)) + 1);
+        return true;
+      }
+    }
+    // First time — seed and save to Firestore
+    deals  = SEED_DEALS.map(d => ({...d}));
+    nextId = 50;
+    await db.collection('pipeline').doc('deals').set({ deals, nextId, updatedAt: new Date().toISOString() });
+    return true;
+  } catch(e) {
+    console.error('Firebase load error', e);
+    return false;
+  }
+}
+
+function subscribeToChanges() {
+  if (!isFirebaseMode) return;
+  unsubscribe = db.collection('pipeline').doc('deals').onSnapshot(snap => {
+    if (!snap.exists) return;
+    const data = snap.data();
+    // Ignore updates triggered by our own save (within 2s)
+    if (!Array.isArray(data.deals)) return;
+    const incoming = JSON.stringify(data.deals);
+    const current  = JSON.stringify(deals);
+    if (incoming !== current) {
+      deals  = data.deals;
+      nextId = data.nextId || nextId;
+      render();
+      applyOverdueStyles();
+      showSync('saved', '↻ Updated by teammate');
+    }
+  }, err => console.warn('Snapshot error', err));
+}
+
+function loadDealsLocal() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.deals) && parsed.deals.length) {
+        deals  = parsed.deals;
+        nextId = parsed.nextId || (Math.max(...parsed.deals.map(d=>d.id)) + 1);
+        return;
+      }
+    }
+  } catch(e) {}
+  deals  = SEED_DEALS.map(d => ({...d}));
+  nextId = 50;
+}
+
+// ── App boot (called after password unlock) ───────────────────────────────
+async function initApp() {
+  const hasFirebase = initFirebase();
+
+  if (hasFirebase) {
+    showSync('saving', 'Connecting…');
+    const loaded = await loadDealsFromFirebase();
+    if (!loaded) loadDealsLocal();
+    render();
+    importPendingDeals();
+    subscribeToChanges();
+    setTimeout(checkReminders, 500);
+  } else {
+    // No Firebase config — show setup banner, use localStorage
+    document.getElementById('setupBanner').classList.remove('hidden');
+    loadDealsLocal();
+    render();
+    importPendingDeals();
+    setTimeout(checkReminders, 500);
+  }
+
+  // Init map after a tick
+  setTimeout(() => { if (!map) initMap(); }, 100);
+}
+
+// ── Boot: called at end of script via DOMContentLoaded ───────────────────
+function boot() {
+  if (sessionStorage.getItem(LS_SESSION) === '1') {
+    document.getElementById('lockScreen').classList.add('unlocked');
+    initApp();
+  }
+  // else: lock screen stays visible, waiting for password
+}
+
+const GROUPS = [
+  {key:'MC',   label:'Marlon Champion', color:'#00c896'},
+  {key:'RP',   label:'Ryan',            color:'#3b6ff5'},
+  {key:'TM',   label:'Tom',             color:'#f59e0b'},
+  {key:'dead', label:'Dead Deals',      color:'#94a3b8'},
+];
+
+function grouped() {
+  const g = {}; GROUPS.forEach(x=>g[x.key]=[]);
+  deals.forEach(d => {
+    if (d.status==='dead') g['dead'].push(d);
+    else if (g[d.dm]) g[d.dm].push(d);
+    else g['dead'].push(d); // fallback for unknown DM
+  });
+  // Default sort A→Z by crossroads within each group
+  Object.keys(g).forEach(k => g[k].sort((a,b)=>(a.crossroads||'').toLowerCase().localeCompare((b.crossroads||'').toLowerCase())));
+  return g;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderTenants(t) {
+  if (!t||t==='-') return '<span class="price-none">—</span>';
+  return '<div class="pill-list">'+t.split(',').map(x=>`<span class="tenant-pill">${esc(x.trim())}</span>`).join('')+'</div>';
+}
+
+function buildRow(d) {
+  const dmColor = DM_COLOR[d.dm]||'#888';
+  const s = STATUSES[d.status]||STATUSES['potential'];
+  const priceDisplay = d.price ? Number(d.price).toLocaleString() : '';
+  const coords = COORDS[d.id];
+  const hasPin = !!(coords || (d.lat && d.lng));
+  const isDead = d.status==='dead';
+  return `
+    <tr class="data-row" id="row-${d.id}" data-dm="${d.dm}" data-status="${d.status}" onclick="toggleDetail(event,${d.id})">
+      <td><div class="name-cell">
+        <button class="expand-btn" id="exp-${d.id}" onclick="toggleDetail(event,${d.id})">▶</button>
+        <input class="name-input" value="${esc(d.crossroads)}" onclick="event.stopPropagation()" onchange="updateD(${d.id},'crossroads',this.value)" placeholder="Address / Crossroads">
+        <button class="map-focus-btn" onclick="event.stopPropagation();focusDealOnMap(${d.id})" title="${hasPin?'Focus on map':'No pin yet'}" style="flex-shrink:0;background:none;border:none;cursor:pointer;font-size:0.8rem;padding:2px 4px;color:${hasPin?'var(--text-3)':'var(--text-4)'};opacity:0;transition:opacity 0.15s">🗺</button>
+        ${isDead ? `<button class="restore-btn" onclick="event.stopPropagation();restoreDeal(${d.id})" title="Move back to active pipeline">↑ Restore</button>` : ''}
+        <button class="delete-btn" onclick="event.stopPropagation();deleteDeal(${d.id})" title="Delete this deal">🗑</button>
+      </div></td>
+      <td onclick="event.stopPropagation()">
+        <div class="dm-badge" style="background:${dmColor}">
+          <select class="dm-select" onchange="updateDM(${d.id},this.value)" title="Change deal manager">
+            <option value="MC"${d.dm==='MC'?' selected':''}>MC</option>
+            <option value="RP"${d.dm==='RP'?' selected':''}>RP</option>
+            <option value="TM"${d.dm==='TM'?' selected':''}>TM</option>
+          </select>
+        </div>
+      </td>
+      <td class="status-wrap" onclick="event.stopPropagation()">
+        <div class="status-badge ${s.cls}" onclick="toggleDD(event,'dd-${d.id}')">
+          <div class="status-dot" style="background:${s.dot}"></div>${s.label}
+        </div>
+        <div class="status-dropdown" id="dd-${d.id}">
+          ${Object.entries(STATUSES).map(([k,v])=>`<div class="status-option" onclick="setStatus(event,${d.id},'${k}')"><div class="status-dot" style="background:${v.dot}"></div>${v.label}</div>`).join('')}
+        </div>
+      </td>
+      <td onclick="event.stopPropagation()">
+        <div style="display:flex;align-items:center;gap:1px">
+          <span class="cell-price-prefix">${d.price ? '$' : ''}</span>
+          <input class="cell-input price-input"
+            value="${esc(priceDisplay)}"
+            placeholder="—"
+            title="Asking price (numbers only)"
+            onchange="updatePrice(${d.id},this.value)"
+            onblur="formatPriceCell(${d.id},this)">
+        </div>
+      </td>
+      <td onclick="event.stopPropagation()">
+        <input class="cell-input city-input" value="${esc(d.city||'')}" placeholder="City" onchange="updateD(${d.id},'city',this.value)">
+      </td>
+      <td onclick="event.stopPropagation()">
+        <input class="cell-input acre-input" value="${esc(d.acreage||'')}" placeholder="—" title="Acreage" onchange="updateD(${d.id},'acreage',this.value)">
+      </td>
+      <td onclick="event.stopPropagation()">
+        <input class="cell-input tenant-input" value="${esc(d.tenants||'')}" placeholder="e.g. 7-Eleven, QSR" onchange="updateD(${d.id},'tenants',this.value)">
+      </td>
+      <td onclick="event.stopPropagation()">
+        <input class="cell-input contact-input" value="${esc(d.contact||'')}" placeholder="—" onchange="updateD(${d.id},'contact',this.value)">
+      </td>
+      <td onclick="event.stopPropagation()">${buildFollowUp(d)}</td>
+    </tr>
+    <tr class="detail-row" id="detail-${d.id}">
+      <td colspan="9">
+        <div class="detail-inner">
+          <div><div class="df-label">Contact Email</div><input class="df-input" value="${esc(d.email||'')}" placeholder="email@…" onchange="updateD(${d.id},'email',this.value)"></div>
+          <div><div class="df-label">Owner Phone</div><input class="df-input" value="${esc(d.phone||'')}" placeholder="—" onchange="updateD(${d.id},'phone',this.value)"></div>
+          <div><div class="df-label">IP End Date</div><input class="df-input" type="date" value="${d.ipEnd||''}" onchange="updateD(${d.id},'ipEnd',this.value)"></div>
+          <div><div class="df-label">Rating</div><div class="stars" id="stars-${d.id}">${[1,2,3,4,5].map(n=>`<span class="star${d.rating&&n<=d.rating?' on':''}" onclick="setRating(${d.id},${n})">★</span>`).join('')}</div></div>
+          <div><div class="df-label">Secondary Contact</div><input class="df-input" value="${esc(d.contact2||'')}" placeholder="Name or broker" onchange="updateD(${d.id},'contact2',this.value)"></div>
+          <div><div class="df-label">Secondary Email</div><input class="df-input" value="${esc(d.email2||'')}" placeholder="email@…" onchange="updateD(${d.id},'email2',this.value)"></div>
+          <div><div class="df-label">Secondary Phone</div><input class="df-input" value="${esc(d.phone2||'')}" placeholder="—" onchange="updateD(${d.id},'phone2',this.value)"></div>
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div style="flex:1"><div class="df-label">Latitude</div><input class="df-input" id="lat-${d.id}" value="${getCoordLat(d.id)}" placeholder="e.g. 28.0155" onchange="updateCoord(${d.id},'lat',this.value)"></div>
+            <div style="flex:1"><div class="df-label">Longitude</div><input class="df-input" id="lng-${d.id}" value="${getCoordLng(d.id)}" placeholder="e.g. -82.5310" onchange="updateCoord(${d.id},'lng',this.value)"></div>
+            <button class="btn btn-ghost" style="margin-bottom:1px;padding:6px 10px;font-size:0.72rem;white-space:nowrap" onclick="focusDealOnMap(${d.id})" title="Fly to this pin on the map">🗺 View</button>
+          </div>
+          <div class="df-notes" style="grid-column:1/-1">
+            <div class="df-label" style="margin-bottom:8px">Notes Log</div>
+            <div class="notes-log" id="notes-log-${d.id}">${buildNotesLog(d)}</div>
+            <div class="note-add-row">
+              <textarea id="note-input-${d.id}" placeholder="Add a note…" rows="2" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))submitNote(${d.id})"></textarea>
+              <button class="note-submit-btn" onclick="submitNote(${d.id})">+ Add Note</button>
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+}
+
+// ── Coord helpers ─────────────────────────────────────────────────────────
+function getCoordLat(id) {
+  const d = deals.find(x=>x.id==id);
+  if (d && d.lat) return d.lat;
+  const c = COORDS[id];
+  return c ? c[0] : '';
+}
+function getCoordLng(id) {
+  const d = deals.find(x=>x.id==id);
+  if (d && d.lng) return d.lng;
+  const c = COORDS[id];
+  return c ? c[1] : '';
+}
+function updateCoord(id, axis, val) {
+  const num = parseFloat(val);
+  if (isNaN(num)) return;
+  const d = deals.find(x=>x.id==id);
+  if (!d) return;
+  if (axis==='lat') d.lat = num; else d.lng = num;
+  const lat = parseFloat(d.lat || (COORDS[id]||[])[0]);
+  const lng = parseFloat(d.lng || (COORDS[id]||[])[1]);
+  if (!isNaN(lat) && !isNaN(lng)) {
+    COORDS[id] = [lat, lng];
+    if (!map) initMap();
+    if (markers[id]) {
+      // Move existing marker
+      markers[id].setLatLng([lat, lng]);
+      markers[id].setPopupContent(buildPopupHtml(d));
+    } else {
+      // Create brand-new marker
+      const isDead = d.status==='dead';
+      const dmKey  = isDead ? 'dead' : d.dm;
+      const fillColor = DM_PIN_COLOR[dmKey] || '#888';
+      const ringColor = STATUS_RING[d.status] || null;
+      const icon = makeIcon(fillColor, ringColor);
+      markers[id] = L.marker([lat, lng], { icon })
+        .bindPopup(buildPopupHtml(d), { maxWidth: 260, minWidth: 240 });
+      if (!isDead) markers[id].addTo(map);
+      // Update the 🗺 button in the row to show it now has a pin
+      const mapBtn = document.querySelector(`#row-${id} .map-focus-btn`);
+      if (mapBtn) {
+        mapBtn.title = 'Focus on map';
+        mapBtn.style.color = 'var(--text-3)';
+      }
+    }
+  }
+  markUnsaved(); saveDeals();
+}
+
+// ── Delete deal ───────────────────────────────────────────────────────────
+function deleteDeal(id) {
+  const d = deals.find(x=>x.id==id);
+  if (!d) return;
+  const label = d.crossroads || 'this deal';
+  if (!confirm(`Delete "${label}"?\n\nThis cannot be undone.`)) return;
+  // Remove from deals array
+  deals = deals.filter(x=>x.id!==id);
+  // Remove map marker
+  if (markers[id]) { map && map.removeLayer(markers[id]); delete markers[id]; }
+  delete COORDS[id];
+  // Remove rows from DOM directly (faster than full re-render)
+  const row = document.getElementById(`row-${id}`);
+  const detail = document.getElementById(`detail-${id}`);
+  if (row) row.remove();
+  if (detail) detail.remove();
+  markUnsaved(); saveDeals(); updateStats();
+}
+
+// ── Focus deal on map ─────────────────────────────────────────────────────
+function focusDealOnMap(id) {
+  const d = deals.find(x=>x.id==id);
+  // Resolve coords from COORDS table or deal's own lat/lng fields
+  let coords = COORDS[id];
+  if (!coords && d && d.lat && d.lng) {
+    coords = [parseFloat(d.lat), parseFloat(d.lng)];
+    COORDS[id] = coords;
+  }
+  if (!coords) {
+    alert('No map pin yet. Enter Latitude and Longitude in the detail panel to auto-create one.');
+    return;
+  }
+  // Expand map if collapsed
+  const mapBody = document.getElementById('mapBody');
+  if (mapBody.style.display === 'none') {
+    mapBody.style.display = '';
+    document.getElementById('mapChevron').classList.add('open');
+  }
+  if (!map) { initMap(); setTimeout(()=>focusDealOnMap(id), 400); return; }
+  // Make sure the marker is on the map (might be dead/hidden)
+  if (markers[id] && !map.hasLayer(markers[id])) markers[id].addTo(map);
+  map.setView(coords, 16, { animate: true });
+  // Scroll to map
+  document.getElementById('mapSection').scrollIntoView({ behavior:'smooth', block:'start' });
+  setTimeout(() => {
+    if (markers[id]) markers[id].openPopup();
+  }, 500);
+}
+
+// ── Timestamped notes log ─────────────────────────────────────────────────
+function getNotesArray(d) {
+  // Migrate legacy afterDiving string into notes array on first access
+  if (!d.notes) {
+    d.notes = [];
+    if (d.afterDiving && d.afterDiving.trim()) {
+      d.notes.push({ ts: 'Legacy note', text: d.afterDiving.trim() });
+    }
+    if (d.initialNotes && d.initialNotes.trim()) {
+      d.notes.push({ ts: 'Initial note', text: d.initialNotes.trim() });
+    }
+  }
+  return d.notes;
+}
+
+function buildNotesLog(d) {
+  const notes = getNotesArray(d);
+  if (!notes.length) return '<div style="font-size:0.72rem;color:var(--text-4);padding:4px 2px">No notes yet — add the first one below.</div>';
+  return notes.map((n, i) => `
+    <div class="note-entry">
+      <div class="note-ts">
+        <span>${esc(n.ts)}</span>
+        <button class="note-del" onclick="deleteNote(${d.id},${i})" title="Delete note">✕</button>
+      </div>
+      <div>${esc(n.text)}</div>
+    </div>`).join('');
+}
+
+function submitNote(id) {
+  const inp = document.getElementById(`note-input-${id}`);
+  const text = inp.value.trim();
+  if (!text) return;
+  const d = deals.find(x=>x.id==id);
+  if (!d) return;
+  getNotesArray(d);
+  const now = new Date();
+  const ts = now.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) +
+             ' · ' + now.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+  d.notes.unshift({ ts, text });
+  // Sync back to afterDiving for search + legacy compatibility
+  d.afterDiving = d.notes.filter(n=>n.ts!=='Initial note').map(n=>`[${n.ts}] ${n.text}`).join('\n');
+  inp.value = '';
+  // Re-render just the notes log
+  const logEl = document.getElementById(`notes-log-${id}`);
+  if (logEl) logEl.innerHTML = buildNotesLog(d);
+  markUnsaved(); saveDeals();
+}
+
+function deleteNote(id, idx) {
+  const d = deals.find(x=>x.id==id);
+  if (!d || !d.notes) return;
+  d.notes.splice(idx, 1);
+  d.afterDiving = d.notes.filter(n=>n.ts!=='Initial note').map(n=>`[${n.ts}] ${n.text}`).join('\n');
+  const logEl = document.getElementById(`notes-log-${id}`);
+  if (logEl) logEl.innerHTML = buildNotesLog(d);
+  markUnsaved(); saveDeals();
+}
+
+function render() {
+  const main = document.getElementById('mainContent');
+  const g = grouped();
+  let html = '';
+  GROUPS.forEach((grp,gi) => {
+    const list = g[grp.key];
+    if (!list||!list.length) return;
+    const total = list.reduce((s,d)=>s+(d.price||0),0);
+    const totalStr = total>0 ? ' · $'+total.toLocaleString() : '';
+    html += `<div class="section-block" data-dm="${grp.key}" style="animation-delay:${gi*0.07}s">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-pip" style="background:${grp.color}"></div>
+        <span class="section-title">${grp.label}</span>
+        <span class="section-badge">${list.length}</span>
+        <span class="section-total">${totalStr}</span>
+        <span class="section-chevron open">▶</span>
+      </div>
+      <div class="section-body">
+        <table class="deal-table">
+          <thead><tr>
+            <th data-col="crossroads" onclick="sortTable('${grp.key}','crossroads')">Property / Crossroads</th>
+            <th data-col="dm"         onclick="sortTable('${grp.key}','dm')">DM</th>
+            <th data-col="status"     onclick="sortTable('${grp.key}','status')">Status</th>
+            <th data-col="price"      onclick="sortTable('${grp.key}','price')">Asking Price</th>
+            <th data-col="city"       onclick="sortTable('${grp.key}','city')">City</th>
+            <th data-col="acreage"    onclick="sortTable('${grp.key}','acreage')">Acreage</th>
+            <th data-col="tenants"    onclick="sortTable('${grp.key}','tenants')">Potential Tenants</th>
+            <th data-col="contact"    onclick="sortTable('${grp.key}','contact')">Contact</th>
+            <th data-col="followup"   onclick="sortTable('${grp.key}','followup')" style="min-width:170px">Follow-Up</th>
+          </tr></thead>
+          <tbody id="tbody-${grp.key}">
+            ${list.map(d=>buildRow(d)).join('')}
+            <tr class="add-row"><td colspan="9">
+              <button class="add-row-btn" onclick="openModal('${grp.key}')">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                Add deal to ${grp.label}
+              </button>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+  main.innerHTML = html;
+  updateStats();
+  buildPipelineBar();
+  setTimeout(applyOverdueStyles, 0);
+}
+
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const chev = header.querySelector('.section-chevron');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  chev.classList.toggle('open', !isOpen);
+}
+
+function toggleDetail(e,id) {
+  e.stopPropagation();
+  const dr = document.getElementById(`detail-${id}`);
+  const btn = document.getElementById(`exp-${id}`);
+  if (!dr) return;
+  const open = dr.classList.toggle('visible');
+  btn.classList.toggle('open', open);
+  document.getElementById(`row-${id}`).classList.toggle('expanded', open);
+}
+
+function toggleDD(e,id) {
+  e.stopPropagation();
+  document.querySelectorAll('.status-dropdown.open').forEach(d=>{if(d.id!==id)d.classList.remove('open');});
+  document.getElementById(id).classList.toggle('open');
+}
+
+function setStatus(e, id, status) {
+  e.stopPropagation();
+  const d = deals.find(x=>x.id===id);
+  if (!d) return;
+  const wasDead = d.status==='dead';
+  d.status = status;
+  const isDead = status==='dead';
+  // Clear follow-up heat when moved to dead — no reminders needed
+  if (isDead && d.heat) { d.heat = null; d.lastContact = null; }
+  // Update map marker visibility
+  if (map && markers[id]) {
+    const dmKey = isDead ? 'dead' : d.dm;
+    const fillColor = DM_PIN_COLOR[dmKey] || '#888';
+    const ringColor = STATUS_RING[status] || null;
+    markers[id].setIcon(makeIcon(fillColor, ringColor));
+    markers[id].setPopupContent(buildPopupHtml(d));
+    if (isDead && !wasDead)      { map.removeLayer(markers[id]); }
+    else if (!isDead && wasDead) { markers[id].addTo(map); }
+  }
+  markUnsaved(); saveDeals();
+  document.querySelectorAll('.status-dropdown.open').forEach(d=>d.classList.remove('open'));
+  render();
+}
+
+function updateD(id,field,val) {
+  const d = deals.find(x=>x.id===id);
+  if (d) { d[field]=val; markUnsaved(); saveDeals(); }
+}
+
+function updateDM(id, newDM) {
+  const d = deals.find(x=>x.id===id);
+  if (!d) return;
+  d.dm = newDM;
+  // Re-render the row so DM badge color updates
+  markUnsaved();
+  saveDeals();
+  render();
+}
+
+function restoreDeal(id) {
+  const d = deals.find(x=>x.id===id);
+  if (!d) return;
+
+  const existing = document.getElementById('restoreModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'restoreModal';
+  overlay.dataset.dealId = id;
+  overlay.dataset.selectedDM = d.dm || 'MC';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.28);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border:1px solid #e4e4de;border-radius:12px;padding:24px;width:340px;box-shadow:0 12px 36px rgba(0,0,0,0.12);font-family:inherit';
+
+  card.innerHTML = `
+    <div style="font-size:0.95rem;font-weight:600;color:#1c1c1a;margin-bottom:3px">↑ Restore Deal</div>
+    <div style="font-size:0.75rem;color:#8f8f8a;margin-bottom:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.crossroads)}</div>
+
+    <div style="font-size:0.62rem;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:#8f8f8a;margin-bottom:8px">Deal Manager</div>
+    <div style="display:flex;gap:8px;margin-bottom:20px" id="rmDMPicker">
+      <button data-dm="MC" class="rm-dm-btn" style="flex:1;padding:10px 6px;border-radius:7px;border:2px solid #059669;background:#f0fdf4;color:#059669;font-weight:600;font-size:0.8rem;cursor:pointer;transition:all .12s">
+        <div style="font-size:0.9rem;margin-bottom:2px">●</div>MC<div style="font-size:0.6rem;font-weight:400;color:#8f8f8a">Marlon</div>
+      </button>
+      <button data-dm="RP" class="rm-dm-btn" style="flex:1;padding:10px 6px;border-radius:7px;border:2px solid #e4e4de;background:#fff;color:#4a4a46;font-weight:600;font-size:0.8rem;cursor:pointer;transition:all .12s">
+        <div style="font-size:0.9rem;margin-bottom:2px;color:#2563eb">●</div>RP<div style="font-size:0.6rem;font-weight:400;color:#8f8f8a">Ryan</div>
+      </button>
+      <button data-dm="TM" class="rm-dm-btn" style="flex:1;padding:10px 6px;border-radius:7px;border:2px solid #e4e4de;background:#fff;color:#4a4a46;font-weight:600;font-size:0.8rem;cursor:pointer;transition:all .12s">
+        <div style="font-size:0.9rem;margin-bottom:2px;color:#d97706">●</div>TM<div style="font-size:0.6rem;font-weight:400;color:#8f8f8a">Tom</div>
+      </button>
+    </div>
+
+    <div style="font-size:0.62rem;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:#8f8f8a;margin-bottom:8px">Restore as Status</div>
+    <select id="rmStatusSelect" style="width:100%;padding:8px 10px;border:1px solid #e4e4de;border-radius:6px;font-family:inherit;font-size:0.82rem;background:#f3f3f0;color:#1c1c1a;outline:none;margin-bottom:20px"></select>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="rmCancel" style="padding:7px 16px;border-radius:6px;border:1px solid #e4e4de;background:none;color:#4a4a46;font-family:inherit;font-size:0.78rem;cursor:pointer">Cancel</button>
+      <button id="rmConfirm" style="padding:7px 16px;border-radius:6px;border:none;background:#2563eb;color:white;font-family:inherit;font-size:0.78rem;font-weight:600;cursor:pointer">Restore →</button>
+    </div>`;
+
+  // Populate status select
+  const sel = card.querySelector('#rmStatusSelect');
+  Object.entries(STATUSES).filter(([k]) => k !== 'dead').forEach(([k, v]) => {
+    const opt = document.createElement('option');
+    opt.value = k; opt.textContent = v.label;
+    if (k === 'potential') opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  // DM picker highlight logic
+  const dmColors = { MC: '#059669', RP: '#2563eb', TM: '#d97706' };
+  function selectDM(dm) {
+    overlay.dataset.selectedDM = dm;
+    card.querySelectorAll('.rm-dm-btn').forEach(btn => {
+      const btnDM = btn.dataset.dm;
+      const c = dmColors[btnDM];
+      if (btnDM === dm) {
+        btn.style.border = `2px solid ${c}`;
+        btn.style.background = btnDM === 'MC' ? '#f0fdf4' : btnDM === 'RP' ? '#eff4ff' : '#fffbeb';
+        btn.style.color = c;
+      } else {
+        btn.style.border = '2px solid #e4e4de';
+        btn.style.background = '#fff';
+        btn.style.color = '#4a4a46';
+      }
+    });
+  }
+
+  // Pre-select the deal's current DM
+  selectDM(d.dm || 'MC');
+
+  card.querySelectorAll('.rm-dm-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); selectDM(btn.dataset.dm); });
+  });
+
+  card.querySelector('#rmCancel').addEventListener('click', () => overlay.remove());
+  card.querySelector('#rmConfirm').addEventListener('click', () => {
+    const chosenDM = overlay.dataset.selectedDM;
+    const chosenStatus = card.querySelector('#rmStatusSelect').value;
+    d.dm = chosenDM;
+    d.status = chosenStatus;
+    if (map && markers[id]) {
+      markers[id].setIcon(makeIcon(DM_PIN_COLOR[chosenDM] || '#888', STATUS_RING[chosenStatus] || null));
+      markers[id].setPopupContent(buildPopupHtml(d));
+      markers[id].addTo(map);
+    }
+    overlay.remove();
+    markUnsaved(); saveDeals(); render();
+  });
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
+function updatePrice(id, raw) {
+  const d = deals.find(x=>x.id===id);
+  if (!d) return;
+  d.price = fmtPrice(raw);
+  markUnsaved();
+  saveDeals();
+}
+
+function formatPriceCell(id, input) {
+  const d = deals.find(x=>x.id===id);
+  if (!d) return;
+  // Show formatted number after blur
+  input.value = d.price ? Number(d.price).toLocaleString() : '';
+  // Update prefix span
+  const prefix = input.previousElementSibling;
+  if (prefix) prefix.textContent = d.price ? '$' : '';
+}
+
+// ── Save bar ──────────────────────────────────────────────────
+let _unsaved = false;
+
+function markUnsaved() {
+  _unsaved = true;
+  const bar = document.getElementById('saveBar');
+  const dot = document.getElementById('saveDot');
+  const msg = document.getElementById('saveBarMsg');
+  if (bar) bar.classList.add('visible');
+  if (dot) { dot.className = 'save-dot'; }
+  if (msg) msg.textContent = 'Unsaved changes';
+}
+
+function markSaved(isCloud) {
+  _unsaved = false;
+  const bar = document.getElementById('saveBar');
+  const dot = document.getElementById('saveDot');
+  const msg = document.getElementById('saveBarMsg');
+  const btn = document.getElementById('saveBarBtn');
+  if (dot) dot.className = 'save-dot saved';
+  if (msg) msg.textContent = isCloud ? '✓ Saved to cloud' : '✓ Saved locally';
+  if (btn) { btn.textContent = '✓ Saved'; btn.classList.add('saving'); }
+  setTimeout(() => {
+    if (bar) bar.classList.remove('visible');
+    if (btn) { btn.textContent = '💾 Save Changes'; btn.classList.remove('saving'); }
+  }, 2000);
+}
+
+async function manualSave() {
+  const btn = document.getElementById('saveBarBtn');
+  if (btn) { btn.textContent = 'Saving…'; btn.classList.add('saving'); }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ deals, nextId }));
+    if (isFirebaseMode && db) {
+      await db.collection('pipeline').doc('deals').set({ deals, nextId, updatedAt: new Date().toISOString() });
+      markSaved(true);
+    } else {
+      markSaved(false);
+    }
+  } catch(e) {
+    const dot = document.getElementById('saveDot');
+    const msg = document.getElementById('saveBarMsg');
+    if (dot) dot.className = 'save-dot error';
+    if (msg) msg.textContent = '⚠ Save failed — check connection';
+    if (btn) { btn.textContent = '💾 Save Changes'; btn.classList.remove('saving'); }
+  }
+}
+
+function setRating(id,val) {
+  const d = deals.find(x=>x.id===id);
+  if (d) { d.rating=val; markUnsaved(); saveDeals(); }
+  document.querySelectorAll(`#stars-${id} .star`).forEach((s,i)=>s.classList.toggle('on',i<val));
+}
+
+function applyFilter(el,filter) {
+  document.querySelectorAll('.fchip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.data-row').forEach(row => {
+    const dm=row.dataset.dm, st=row.dataset.status;
+    const id = row.id.replace('row-','');
+    const deal = deals.find(x=>x.id==id);
+    let show=true;
+    if      (filter==='MC')        show=dm==='MC'&&st!=='dead';
+    else if (filter==='RP')        show=dm==='RP'&&st!=='dead';
+    else if (filter==='TM')        show=dm==='TM'&&st!=='dead';
+    else if (filter==='offer')     show=st==='offer-sent'||st==='loi-sent';
+    else if (filter==='potential') show=st==='potential'||st==='prospect';
+    else if (filter==='dead')      show=st==='dead';
+    else if (filter==='heat-hot')  show=!!(deal&&deal.heat==='hot');
+    else if (filter==='heat-warm') show=!!(deal&&deal.heat==='warm');
+    else if (filter==='heat-cold') show=!!(deal&&deal.heat==='cold');
+    row.classList.toggle('hidden-row',!show);
+    if (!show){const dr=document.getElementById('detail-'+row.id.replace('row-',''));if(dr)dr.classList.remove('visible');}
+  });
+  // Sync map — dead chip shows dead pins, heat chips show active, everything else active
+  if (map) {
+    const heatFilters = ['heat-hot','heat-warm','heat-cold'];
+    filterMapByDM(filter==='dead' ? 'dead' : filter==='MC'||filter==='RP'||filter==='TM' ? filter : 'all');
+  }
+}
+
+function searchDeals(q) {
+  const lq=q.toLowerCase().trim();
+  document.querySelectorAll('.data-row').forEach(row => {
+    if (!lq){row.classList.remove('hidden-row');return;}
+    const id=row.id.replace('row-','');
+    const d=deals.find(x=>x.id==id);
+    if (!d) return;
+    const text=[d.crossroads,d.city,d.contact,d.tenants,d.email,d.afterDiving,d.initialNotes].join(' ').toLowerCase();
+    row.classList.toggle('hidden-row',!text.includes(lq));
+  });
+}
+
+function fmtM(n) {
+  if (!n) return '—';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2).replace(/\.?0+$/,'') + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+  return '$' + n.toLocaleString();
+}
+
+function updateStats() {
+  const active = dm => deals.filter(d=>d.dm===dm&&d.status!=='dead');
+  const mcD=active('MC'), rpD=active('RP'), tmD=active('TM');
+  document.getElementById('stat-mc').textContent = mcD.length;
+  document.getElementById('stat-rp').textContent = rpD.length;
+  document.getElementById('stat-tm').textContent = tmD.length;
+  document.getElementById('sub-mc').textContent  = fmtM(mcD.reduce((s,d)=>s+(d.price||0),0)) + ' asking';
+  document.getElementById('sub-rp').textContent  = fmtM(rpD.reduce((s,d)=>s+(d.price||0),0)) + ' asking';
+  document.getElementById('sub-tm').textContent  = tmD.length===1 ? 'Active site' : tmD.length + ' active sites';
+  document.getElementById('stat-active').textContent = deals.filter(d=>d.status==='offer-sent'||d.status==='loi-sent').length;
+  const totalSeen = deals.reduce((s,d)=>s+(d.price||0),0);
+  document.getElementById('stat-deals-seen').textContent = fmtM(totalSeen);
+  const deadCount = deals.filter(d=>d.status==='dead').length;
+  document.getElementById('sub-deals-seen').textContent  = deadCount + ' dead · ' + deals.length + ' total deals';
+}
+
+// ── SORT ─────────────────────────────────────────────────────
+const sortState = {};
+
+function sortTable(groupKey, col) {
+  const prev = sortState[groupKey] || {};
+  const dir  = (prev.col === col && prev.dir === 'asc') ? 'desc' : 'asc';
+  sortState[groupKey] = { col, dir };
+
+  const g = grouped();
+  const list = g[groupKey];
+  if (!list) return;
+
+  list.sort((a, b) => {
+    let av, bv;
+    if      (col === 'crossroads') { av = (a.crossroads||'').toLowerCase(); bv = (b.crossroads||'').toLowerCase(); }
+    else if (col === 'price')      { av = a.price||0; bv = b.price||0; }
+    else if (col === 'status')     { av = a.status||''; bv = b.status||''; }
+    else if (col === 'city')       { av = (a.city||'').toLowerCase(); bv = (b.city||'').toLowerCase(); }
+    else if (col === 'acreage')    { av = parseFloat(a.acreage)||0; bv = parseFloat(b.acreage)||0; }
+    else if (col === 'contact')    { av = (a.contact||'').toLowerCase(); bv = (b.contact||'').toLowerCase(); }
+    else if (col === 'tenants')    { av = (a.tenants||'').toLowerCase(); bv = (b.tenants||'').toLowerCase(); }
+    else if (col === 'dm')         { av = a.dm||''; bv = b.dm||''; }
+    else if (col === 'followup')   {
+      const order = { hot:0, warm:1, cold:2 };
+      av = order[a.heat] !== undefined ? order[a.heat] : 3;
+      bv = order[b.heat] !== undefined ? order[b.heat] : 3;
+    }
+    if (av < bv) return dir==='asc' ? -1 : 1;
+    if (av > bv) return dir==='asc' ?  1 : -1;
+    return 0;
+  });
+
+  const tbody = document.getElementById('tbody-' + groupKey);
+  if (!tbody) { render(); return; }
+  const grp = GROUPS.find(x=>x.key===groupKey);
+  tbody.innerHTML = list.map(d=>buildRow(d)).join('') +
+    '<tr class="add-row"><td colspan="9"><button class="add-row-btn" onclick="openModal(\'' + groupKey + '\')">' +
+    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+    'Add deal to ' + (grp ? grp.label : groupKey) + '</button></td></tr>';
+
+  const thead = tbody.closest('table').querySelector('thead');
+  thead.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    if (th.dataset.col === col) th.classList.add('sort-' + dir);
+  });
+}
+
+// ── MAP DM FILTER ─────────────────────────────────────────────
+let activeMapDM = 'all';
+
+function filterMapByDM(dm) {
+  if (!map) { initMap(); setTimeout(()=>filterMapByDM(dm), 300); return; }
+  activeMapDM = dm;
+  Object.keys(markers).forEach(id => {
+    const d = deals.find(x => x.id == id);
+    if (!d) return;
+    const isDead = d.status==='dead';
+    let show;
+    if      (dm === 'dead') show = isDead;
+    else if (dm === 'MC')   show = d.dm==='MC' && !isDead;
+    else if (dm === 'RP')   show = d.dm==='RP' && !isDead;
+    else if (dm === 'TM')   show = d.dm==='TM' && !isDead;
+    else                    show = !isDead;   // 'all' = active deals only
+    if (show) { if (!map.hasLayer(markers[id])) markers[id].addTo(map); }
+    else       { if ( map.hasLayer(markers[id])) map.removeLayer(markers[id]); }
+  });
+  const labels = { MC:'Marlon (MC)', RP:'Ryan (RP)', TM:'Tom (TM)', all:'Active deals', dead:'Dead / UC' };
+  const el = document.getElementById('mapDMFilter');
+  if (el) el.textContent = labels[dm] || 'Active deals';
+  document.querySelectorAll('.sum-card').forEach(c => c.style.outline = '');
+  const dmIndex = { MC:0, RP:1, TM:2 };
+  if (dm !== 'all') {
+    const cards = document.querySelectorAll('.sum-card');
+    if (cards[dmIndex[dm]] !== undefined) cards[dmIndex[dm]].style.outline = '2px solid var(--blue)';
+  }
+  const mapBody = document.getElementById('mapBody');
+  if (mapBody && mapBody.style.display === 'none') toggleMap();
+}
+
+function buildPipelineBar() {
+  const counts={};
+  Object.keys(STATUSES).forEach(k=>counts[k]=0);
+  deals.forEach(d=>{if(counts[d.status]!==undefined)counts[d.status]++;});
+  const colors={'loi-sent':'#3b6ff5','offer-sent':'#10b981','uc':'#f59e0b','potential':'#0284c7','prospect':'#7c5af6','dead':'#cbd5e1'};
+  const labels={'loi-sent':'LOI Sent','offer-sent':'Offer Sent','uc':'Under Contract','potential':'Potential','prospect':'Prospect','dead':'Dead'};
+  document.getElementById('pipelineBar').innerHTML=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>`<div style="flex:${v};background:${colors[k]||'#ccc'}" title="${labels[k]||k}: ${v}"></div>`).join('');
+  document.getElementById('pipelineLegend').innerHTML=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>`<div class="leg-item"><div class="leg-dot" style="background:${colors[k]}"></div>${labels[k]||k} (${v})</div>`).join('');
+}
+
+let modalDM='MC';
+function populateStatusSelects() {
+  const opts = Object.entries(STATUSES).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
+  ['m-status','pm-status'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = opts;
+  });
+}
+
+function openModal(dm) {
+  modalDM=(!dm||dm==='dead')?'MC':dm;
+  populateStatusSelects();
+  document.getElementById('m-dm').value=modalDM;
+  document.getElementById('m-status').value=dm==='dead'?'dead':'potential';
+  document.getElementById('addModal').classList.add('open');
+}
+function closeModal(){document.getElementById('addModal').classList.remove('open');}
+
+function addDeal() {
+  const price=fmtPrice(document.getElementById('m-price').value.trim());
+  deals.push({
+    id:nextId++, dm:document.getElementById('m-dm').value, status:document.getElementById('m-status').value,
+    crossroads:document.getElementById('m-cross').value||'New Deal', city:document.getElementById('m-city').value,
+    state:document.getElementById('m-state').value||'FL', acreage:document.getElementById('m-acreage').value,
+    price, tenants:document.getElementById('m-tenants').value, contact:document.getElementById('m-contact').value,
+    email:document.getElementById('m-email').value, phone:document.getElementById('m-phone').value,
+    ipEnd:document.getElementById('m-ipend').value, rating:null, afterDiving:document.getElementById('m-notes').value, initialNotes:'',
+  });
+  markUnsaved(); saveDeals();
+  closeModal();
+  ['m-cross','m-city','m-acreage','m-price','m-tenants','m-contact','m-email','m-phone','m-notes'].forEach(id=>document.getElementById(id).value='');
+  render();
+}
+
+// ── Status Manager ────────────────────────────────────────────────────────
+function openStatusManager() {
+  renderStatusList();
+  document.getElementById('statusModal').classList.add('open');
+}
+
+function renderStatusList() {
+  const el = document.getElementById('status-list');
+  el.innerHTML = Object.entries(STATUSES).map(([key, s]) => {
+    const isBuiltin = BUILTIN_STATUSES.includes(key);
+    return `<div class="status-mgr-row">
+      <div class="status-mgr-dot" style="background:${s.dot}"></div>
+      <span class="status-mgr-label">${esc(s.label)}</span>
+      <span class="status-mgr-key">${key}</span>
+      ${isBuiltin
+        ? `<span class="status-builtin">built-in</span>`
+        : `<button class="status-mgr-del" onclick="removeCustomStatus('${key}')" title="Delete status">✕</button>`}
+    </div>`;
+  }).join('');
+}
+
+function addCustomStatus() {
+  const label = document.getElementById('ns-label').value.trim();
+  const color = document.getElementById('ns-color').value;
+  if (!label) { document.getElementById('ns-label').focus(); return; }
+  // Generate a slug key from the label
+  const key = label.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  if (STATUSES[key]) { alert(`A status with key "${key}" already exists.`); return; }
+  STATUSES[key] = { label, cls:'s-custom', dot: color };
+  saveCustomStatuses();
+  document.getElementById('ns-label').value = '';
+  renderStatusList();
+  render(); // refresh all dropdowns
+}
+
+function removeCustomStatus(key) {
+  if (BUILTIN_STATUSES.includes(key)) return;
+  if (!confirm(`Remove status "${STATUSES[key].label}"?\nDeals using it will show as "Potential Site".`)) return;
+  delete STATUSES[key];
+  // Reset any deals using this status
+  deals.forEach(d => { if (d.status===key) d.status='potential'; });
+  saveCustomStatuses();
+  markUnsaved(); saveDeals();
+  renderStatusList();
+  render();
+}
+
+function saveCustomStatuses() {
+  const custom = {};
+  Object.entries(STATUSES).forEach(([k,v]) => { if (!BUILTIN_STATUSES.includes(k)) custom[k]=v; });
+  localStorage.setItem('customStatuses', JSON.stringify(custom));
+}
+
+function resetToDefaults() {
+  if (!confirm('Reset all deals back to the original 35? This will erase any changes and imported deals.')) return;
+  localStorage.removeItem('ftDeals_v1');
+  if (isFirebaseMode && db) {
+    const seed = SEED_DEALS.map(d => ({...d}));
+    db.collection('pipeline').doc('deals').set({ deals: seed, nextId: 36, updatedAt: new Date().toISOString() })
+      .then(() => location.reload());
+  } else {
+    location.reload();
+  }
+}
+
+function exportCSV() {
+  // ── Build workbook with SheetJS ─────────────────────────────────────────
+  const wb = XLSX.utils.book_new();
+
+  const STATUS_LABELS = {
+    'offer-sent':'Offer Sent','loi-sent':'LOI Sent','prospect':'Prospect',
+    'potential':'Potential Site','uc':'Under Contract','dead':'Dead'
+  };
+
+  const COLS = ['DM','Status','Asking Price','Crossroads','City','State',
+                'Acreage','Potential Tenants','Contact','Email','Phone',
+                'IP End Date','Rating','After Diving In','Initial Notes'];
+
+  // ── Header style helpers ─────────────────────────────────────────────────
+  const titleStyle = { font:{bold:true,sz:14,color:{rgb:'1A1A2E'}}, fill:{fgColor:{rgb:'EEF2FF'}}, alignment:{horizontal:'left',vertical:'center'} };
+  const colHdrStyle = { font:{bold:true,sz:10,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1A1A2E'}}, alignment:{horizontal:'center',vertical:'center'}, border:{bottom:{style:'thin',color:{rgb:'333333'}}} };
+  const secHdrStyle = (bg) => ({ font:{bold:true,sz:11}, fill:{fgColor:{rgb:bg}}, alignment:{horizontal:'left',vertical:'center'}, border:{bottom:{style:'thin',color:{rgb:'9E9E9E'}}} });
+  const totalsStyle = { font:{bold:true,sz:10,color:{rgb:'444444'}}, fill:{fgColor:{rgb:'F2F2F2'}}, border:{bottom:{style:'thin',color:{rgb:'9E9E9E'}}} };
+  const dataStyle   = (even, isDead) => ({
+    font:{ sz:10, color:{rgb: isDead ? '888888' : '1A1A2E'}, italic: isDead },
+    fill:{ fgColor:{ rgb: isDead ? 'F5F5F5' : even ? 'FAFAFA' : 'FFFFFF' } },
+    alignment:{ horizontal:'left', vertical:'top', wrapText:true },
+    border:{ top:{style:'thin',color:{rgb:'E8E8E8'}}, bottom:{style:'thin',color:{rgb:'E8E8E8'}},
+             left:{style:'thin',color:{rgb:'E8E8E8'}}, right:{style:'thin',color:{rgb:'E8E8E8'}} }
+  });
+  const priceStyle  = (even, isDead) => ({ ...dataStyle(even,isDead), alignment:{horizontal:'right',vertical:'top'}, numFmt:'$#,##0;($#,##0);"-"' });
+  const summaryStyle = { font:{bold:true,sz:10,color:{rgb:'1A1A2E'}}, fill:{fgColor:{rgb:'E8F0FE'}}, alignment:{horizontal:'left',vertical:'center'} };
+
+  function applyStyle(cell, style) {
+    if (!cell) return;
+    if (style.font)      cell.s = {...(cell.s||{}), font: style.font};
+    if (style.fill)      cell.s = {...(cell.s||{}), fill: style.fill};
+    if (style.alignment) cell.s = {...(cell.s||{}), alignment: style.alignment};
+    if (style.border)    cell.s = {...(cell.s||{}), border: style.border};
+    if (style.numFmt)    cell.s = {...(cell.s||{}), numFmt: style.numFmt};
+    // merge pattern
+    cell.s = Object.assign({}, cell.s);
+    if (style.font)      cell.s.font = style.font;
+    if (style.fill)      cell.s.fill = {...style.fill, patternType:'solid'};
+    if (style.alignment) cell.s.alignment = style.alignment;
+    if (style.border)    cell.s.border = style.border;
+    if (style.numFmt)    cell.z = style.numFmt;
+  }
+
+  // ── Assemble all rows as array-of-arrays ─────────────────────────────────
+  const aoa = [];       // array of arrays
+  const stylemap = {};  // row -> col -> style spec
+  const merges = [];
+
+  function push(rowData, styles) {
+    const rowIdx = aoa.length;
+    aoa.push(rowData);
+    if (styles) stylemap[rowIdx] = styles;
+    return rowIdx;
+  }
+
+  const today = new Date().toLocaleDateString('en-US');
+
+  // Title row
+  push([`Ferber Commercial — Deal Pipeline  ·  Exported ${today}`, ...Array(COLS.length-1).fill('')],
+       { 0: titleStyle });
+  merges.push({ s:{r:0,c:0}, e:{r:0,c:COLS.length-1} });
+
+  // Summary stats row
+  const active = deals.filter(d=>d.status!=='dead');
+  const totalAsk = active.reduce((s,d)=>s+(d.price||0),0);
+  const mcCount  = active.filter(d=>d.dm==='MC').length;
+  const rpCount  = active.filter(d=>d.dm==='RP').length;
+  const tmCount  = active.filter(d=>d.dm==='TM').length;
+  const deadCount = deals.filter(d=>d.status==='dead').length;
+
+  const summaryRow = ['','Active Deals', active.length,
+    'Marlon', mcCount, 'Ryan', rpCount, 'Tom', tmCount,
+    'Dead/UC', deadCount, 'Total Asking', totalAsk,
+    '',''];
+  const sumStyles = {};
+  summaryRow.forEach((_,i) => sumStyles[i] = summaryStyle);
+  sumStyles[12] = { ...summaryStyle, numFmt:'$#,##0', alignment:{horizontal:'right',vertical:'center'} };
+  push(summaryRow, sumStyles);
+
+  // Spacer
+  push(Array(COLS.length).fill(''), {});
+
+  // Column headers
+  const hdrStyles = {};
+  COLS.forEach((_,i) => hdrStyles[i] = colHdrStyle);
+  push(COLS, hdrStyles);
+
+  // ── Sections ──────────────────────────────────────────────────────────────
+  const sections = [
+    { dm:'MC', label:'Marlon Champion (MC)', bg:'D6F4EC' },
+    { dm:'RP', label:'Ryan (RP)',            bg:'DDEEFF' },
+    { dm:'TM', label:'Tom (TM)',             bg:'FFF3CD' },
+  ];
+
+  for (const sec of sections) {
+    const sDeals = deals.filter(d => d.dm===sec.dm && d.status!=='dead');
+    if (!sDeals.length) continue;
+
+    push(Array(COLS.length).fill(''), {}); // spacer
+
+    // Section header
+    const shStyles = {};
+    COLS.forEach((_,i) => shStyles[i] = secHdrStyle(sec.bg));
+    push([sec.label, ...Array(COLS.length-1).fill('')], shStyles);
+    merges.push({ s:{r:aoa.length-1,c:0}, e:{r:aoa.length-1,c:2} });
+
+    let priceSum = 0;
+    sDeals.forEach((d, idx) => {
+      const even = idx % 2 === 0;
+      const pv = d.price || null;
+      if (pv) priceSum += pv;
+      const row = [
+        d.dm,
+        STATUS_LABELS[d.status] || d.status,
+        pv,
+        d.crossroads || '',
+        d.city || '',
+        d.state || 'FL',
+        d.acreage || '',
+        d.tenants || '',
+        d.contact || '',
+        d.email || '',
+        d.phone || '',
+        d.ipEnd || '',
+        d.rating ? '★'.repeat(d.rating) : '',
+        d.afterDiving || '',
+        d.initialNotes || '',
+      ];
+      const rowStyles = {};
+      row.forEach((_,i) => rowStyles[i] = i===2 ? priceStyle(even,false) : dataStyle(even,false));
+      push(row, rowStyles);
+    });
+
+    // Subtotals
+    const totRow = [`${sDeals.length} deal${sDeals.length!==1?'s':''}`, 'SUBTOTAL', priceSum, ...Array(COLS.length-3).fill('')];
+    const totStyles = {};
+    totRow.forEach((_,i) => totStyles[i] = i===2
+      ? {...totalsStyle, numFmt:'$#,##0', alignment:{horizontal:'right'}}
+      : totalsStyle);
+    push(totRow, totStyles);
+  }
+
+  // ── Dead / UC section ────────────────────────────────────────────────────
+  const deadDeals = deals.filter(d => d.status==='dead');
+  if (deadDeals.length) {
+    push(Array(COLS.length).fill(''), {});
+    const dhStyles = {};
+    COLS.forEach((_,i) => dhStyles[i] = secHdrStyle('EEEEEE'));
+    push(['Dead / Under Contract', ...Array(COLS.length-1).fill('')], dhStyles);
+    merges.push({ s:{r:aoa.length-1,c:0}, e:{r:aoa.length-1,c:2} });
+
+    let deadPriceSum = 0;
+    deadDeals.forEach((d, idx) => {
+      const even = idx % 2 === 0;
+      const pv = d.price || null;
+      if (pv) deadPriceSum += pv;
+      const row = [
+        d.dm,
+        STATUS_LABELS[d.status] || d.status,
+        pv,
+        d.crossroads || '',
+        d.city || '',
+        d.state || 'FL',
+        d.acreage || '',
+        d.tenants || '',
+        d.contact || '',
+        d.email || '',
+        d.phone || '',
+        d.ipEnd || '',
+        d.rating ? '★'.repeat(d.rating) : '',
+        d.afterDiving || '',
+        d.initialNotes || '',
+      ];
+      const rowStyles = {};
+      row.forEach((_,i) => rowStyles[i] = i===2 ? priceStyle(even,true) : dataStyle(even,true));
+      push(row, rowStyles);
+    });
+
+    const totRow = [`${deadDeals.length} deal${deadDeals.length!==1?'s':''}`, 'SUBTOTAL', deadPriceSum, ...Array(COLS.length-3).fill('')];
+    const totStyles = {};
+    totRow.forEach((_,i) => totStyles[i] = i===2
+      ? {...totalsStyle, numFmt:'$#,##0', alignment:{horizontal:'right'}}
+      : totalsStyle);
+    push(totRow, totStyles);
+  }
+
+  // ── Convert to worksheet ─────────────────────────────────────────────────
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Apply styles cell by cell
+  Object.entries(stylemap).forEach(([rowIdx, colStyles]) => {
+    Object.entries(colStyles).forEach(([colIdx, style]) => {
+      const addr = XLSX.utils.encode_cell({ r: parseInt(rowIdx), c: parseInt(colIdx) });
+      if (!ws[addr]) ws[addr] = { t:'s', v:'' };
+      // Apply number format for price cells
+      if (style.numFmt) ws[addr].z = style.numFmt;
+    });
+  });
+
+  // Apply merges
+  ws['!merges'] = merges;
+
+  // Column widths
+  ws['!cols'] = [
+    {wch:7},{wch:18},{wch:14},{wch:38},{wch:16},{wch:7},
+    {wch:9},{wch:28},{wch:22},{wch:30},{wch:15},{wch:14},
+    {wch:8},{wch:52},{wch:52}
+  ];
+
+  // Freeze top 4 rows (title + summary + spacer + col headers)
+  ws['!freeze'] = { xSplit:0, ySplit:4 };
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Pipeline');
+
+  // ── Download ─────────────────────────────────────────────────────────────
+  const dateStr = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `FerberPipeline_${dateStr}.xlsx`);
+}
+
+document.addEventListener('click',()=>document.querySelectorAll('.status-dropdown.open').forEach(d=>d.classList.remove('open')));
+document.getElementById('addModal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+
+// ── INTAKE BOT: auto-import pending deals from localStorage ──
+function importPendingDeals() {
+  try {
+    const pending = JSON.parse(localStorage.getItem('pendingDeals') || '[]');
+    if (!pending.length) return;
+    let added = 0;
+    const validDMs = ['MC','RP','TM'];
+    const validStatuses = ['potential','prospect','offer-sent','loi-sent','uc','dead'];
+
+    pending.forEach(raw => {
+      // Sanitize every field so nothing breaks the tracker
+      const d = {
+        id:          nextId++,
+        crossroads:  String(raw.crossroads || 'New Deal').trim(),
+        city:        String(raw.city        || '').trim(),
+        state:       String(raw.state       || 'FL').trim(),
+        dm:          validDMs.includes(raw.dm) ? raw.dm : 'MC',
+        status:      validStatuses.includes(raw.status) ? raw.status : 'potential',
+        // price: accept number, numeric string, or null
+        price:       fmtPrice(raw.price),
+        acreage:     String(raw.acreage     || '').trim(),
+        tenants:     String(raw.tenants     || '').trim(),
+        contact:     String(raw.contact     || '').trim(),
+        email:       String(raw.email       || '').trim(),
+        phone:       String(raw.phone       || '').trim(),
+        ipEnd:       String(raw.ipEnd       || '').trim(),
+        // notes may come in as afterDiving or notes
+        afterDiving: String(raw.afterDiving || raw.notes || '').trim(),
+        initialNotes: String(raw.initialNotes || '').trim(),
+        rating:      raw.rating || null,
+      };
+
+      // Duplicate check — normalize before comparing
+      const norm = s => String(s||'').toLowerCase().trim();
+      const exists = deals.some(x =>
+        norm(x.crossroads) === norm(d.crossroads) &&
+        norm(x.city)       === norm(d.city)
+      );
+      if (!exists) { deals.push(d); added++; }
+    });
+
+    localStorage.removeItem('pendingDeals');
+    if (added > 0) { markUnsaved(); saveDeals(); render(); showImportToast(added); }
+  } catch(e) { console.warn('Import error', e); }
+}
+
+function showImportToast(n) {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:#1a1a2e;color:white;padding:12px 22px;border-radius:10px;font-family:var(--font);
+    font-size:0.82rem;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.2);z-index:999;
+    display:flex;align-items:center;gap:8px;opacity:0;transition:all 0.3s ease;`;
+  t.innerHTML = `<span>✅</span> ${n} deal${n>1?'s':''} imported from Intake Bot`;
+  document.body.appendChild(t);
+  requestAnimationFrame(()=>{ t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)'; });
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(10px)'; setTimeout(()=>t.remove(),400); }, 3500);
+}
+
+// App is initialized via initApp() after password unlock (see persistence block above)
+
+// ── MAP ──────────────────────────────────────────────────────────────────
+
+// Approximate coordinates for each deal (city-level geocoding)
+
+// ── FOLLOW-UP SYSTEM ─────────────────────────────────────────
+// heat: 'hot' (7d), 'warm' (14d), 'cold' (30d), null
+// lastContact: ISO date string e.g. '2026-02-18'
+// lastSnippet: short string from afterDiving
+
+const HEAT_DAYS  = { hot: 7, warm: 14, cold: 30 };
+const HEAT_LABEL = { hot: 'Hot', warm: 'Warm', cold: 'Cold' };
+const HEAT_CLS   = { hot: 'fu-hot', warm: 'fu-warm', cold: 'fu-cold' };
+
+function extractLastContact(notes) {
+  // Look for dates like 2.18.26 / 2/18/26 / Feb 18 at the start of a sentence
+  if (!notes) return null;
+  const patterns = [
+    /\b(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b/,   // 2.18.26 or 2/18/26
+    /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[. ]+(\d{1,2})[,. ]+(\d{2,4})/i,
+  ];
+  for (const pat of patterns) {
+    const m = notes.match(pat);
+    if (m) {
+      try {
+        let d;
+        if (m[3]) {
+          // numeric
+          let yr = parseInt(m[3]); if (yr < 100) yr += 2000;
+          d = new Date(yr, parseInt(m[1])-1, parseInt(m[2]));
+        } else {
+          d = new Date(m[0]);
+        }
+        if (!isNaN(d)) return d;
+      } catch(e) {}
+    }
+  }
+  return null;
+}
+
+function daysUntilDue(d) {
+  if (!d.heat || !d.lastContact) return null;
+  const interval = HEAT_DAYS[d.heat];
+  if (!interval) return null;
+  const last = new Date(d.lastContact);
+  if (isNaN(last)) return null;
+  const due = new Date(last);
+  due.setDate(due.getDate() + interval);
+  const today = new Date(); today.setHours(0,0,0,0);
+  return Math.round((due - today) / 86400000);
+}
+
+function fmtDueLabel(days, heat, id) {
+  if (days === null) return '';
+  const doneBtn = id != null
+    ? `<button class="fu-done-btn" onclick="markContactDone(event,${id})">✓</button>`
+    : '';
+  if (days < 0)  return `<span class="fu-due overdue">${Math.abs(days)}d overdue</span>${doneBtn}`;
+  if (days === 0) return `<span class="fu-due today">Today</span>${doneBtn}`;
+  if (days <= 3)  return `<span class="fu-due soon">in ${days}d</span>`;
+  return `<span class="fu-due ok">in ${days}d</span>`;
+}
+
+function fmtLastDate(d) {
+  if (!d.lastContact) return '';
+  const dt = new Date(d.lastContact);
+  if (isNaN(dt)) return '';
+  return dt.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'2-digit' });
+}
+
+function getSnippet(d) {
+  const notes = (d.afterDiving || d.initialNotes || '').trim();
+  if (!notes) return '';
+  // Take first 80 chars, cut at word boundary
+  let s = notes.replace(/\d{1,2}[./]\d{1,2}[./]\d{2,4}\s*[-–—]?\s*/g, '').trim();
+  if (s.length > 80) s = s.slice(0, 80).replace(/\s+\S*$/, '') + '…';
+  return s;
+}
+
+function buildFollowUp(d) {
+  if (d.status === 'dead') return '<span style="color:var(--text-4);font-size:0.7rem;font-family:var(--mono)">—</span>';
+  const heat = d.heat || null;
+  const heatCls   = heat ? HEAT_CLS[heat]   : 'fu-none';
+  const heatLabel = heat ? HEAT_LABEL[heat]  : '— Set heat';
+  const days   = daysUntilDue(d);
+  const dueHtml = fmtDueLabel(days, heat, d.id);
+  const snippet = getSnippet(d);
+  const lastDate = fmtLastDate(d);
+  const emailHref = d.email && d.email !== '-'
+    ? buildEmailHref(d)
+    : '';
+
+  return `<div class="fu-cell">
+    <div class="fu-top-row">
+      <div class="fu-heat-wrap-outer">
+        <div class="fu-heat-wrap">
+          <span class="fu-heat ${heatCls}" onclick="toggleHeatMenu(event,${d.id})">${heatLabel}</span>
+        </div>
+        <div class="fu-heat-menu" id="fumenu-${d.id}">
+          <div class="fu-heat-option" onclick="setHeat(event,${d.id},'hot')"><span class="fu-dot" style="background:#ef4444"></span> Hot <span class="fu-days">7d</span></div>
+          <div class="fu-heat-option" onclick="setHeat(event,${d.id},'warm')"><span class="fu-dot" style="background:#f59e0b"></span> Warm <span class="fu-days">14d</span></div>
+          <div class="fu-heat-option" onclick="setHeat(event,${d.id},'cold')"><span class="fu-dot" style="background:#3b82f6"></span> Cold <span class="fu-days">30d</span></div>
+          <div class="fu-heat-option" onclick="setHeat(event,${d.id},null)" style="color:var(--text-4)">✕ Clear</div>
+        </div>
+      </div>
+      ${dueHtml}
+    </div>
+    <div class="fu-bottom-row">
+      ${snippet ? `<span class="fu-snippet">${esc(snippet)}</span>` : ''}
+      ${emailHref ? `<a class="fu-email-btn" href="${emailHref}" onclick="event.stopPropagation()">
+        <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><rect x="1" y="2" width="8" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1 3l4 3 4-3" stroke="currentColor" stroke-width="1.2"/></svg>
+        ${esc((d.contact||'').split(' ')[0] || 'Email')}
+      </a>` : ''}
+    </div>
+  </div>`;
+}
+
+function buildEmailHref(d) {
+  const days = daysUntilDue(d);
+  const dueStr = days !== null
+    ? (days < 0 ? ` (${Math.abs(days)} days overdue)` : days === 0 ? ' (due today)' : ` (due in ${days} days)`)
+    : '';
+  const subject = encodeURIComponent(`Following up — ${d.crossroads}${d.city ? ', ' + d.city : ''}`);
+  const interval = d.heat ? HEAT_DAYS[d.heat] + '-day' : '';
+  const body = encodeURIComponent(
+    `Hi ${(d.contact||'').split(' ')[0] || 'there'},\n\n` +
+    `Following up on ${d.crossroads}${d.city ? ' in ' + d.city : ''}.\n\n` +
+    `[Your message here]\n\nBest,\nRobby`
+  );
+  return `mailto:${d.email}?subject=${subject}&body=${body}`;
+}
+
+function toggleHeatMenu(e, id) {
+  e.stopPropagation();
+  const menu = document.getElementById('fumenu-' + id);
+  if (!menu) return;
+  // close all others
+  document.querySelectorAll('.fu-heat-menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.fu-heat-menu.open').forEach(m => m.classList.remove('open'));
+});
+
+function setHeat(e, id, heat) {
+  e.stopPropagation();
+  const d = deals.find(x => x.id === id);
+  if (!d) return;
+  d.heat = heat || null;
+
+  // Auto-detect last contact date from notes if not already set
+  if (heat && !d.lastContact) {
+    const dt = extractLastContact(d.afterDiving || d.initialNotes || '');
+    if (dt) d.lastContact = dt.toISOString().split('T')[0];
+    else     d.lastContact = new Date().toISOString().split('T')[0];
+  }
+
+  markUnsaved(); saveDeals();
+  document.querySelectorAll('.fu-heat-menu.open').forEach(m => m.classList.remove('open'));
+
+  // Re-render just this cell
+  const row = document.getElementById('row-' + id);
+  if (row) {
+    const tds = row.querySelectorAll('td');
+    const fuTd = tds[tds.length - 1];
+    if (fuTd) fuTd.innerHTML = buildFollowUp(d);
+  }
+  // Update overdue row styling
+  applyOverdueStyles();
+}
+
+function markContactDone(e, id) {
+  e.stopPropagation();
+  const d = deals.find(x => x.id === id);
+  if (!d) return;
+  // Reset lastContact to today → restarts the countdown
+  d.lastContact = new Date().toISOString().split('T')[0];
+  // Re-render this cell
+  const row = document.getElementById('row-' + id);
+  if (row) {
+    const tds = row.querySelectorAll('td');
+    const fuTd = tds[tds.length - 1];
+    if (fuTd) fuTd.innerHTML = buildFollowUp(d);
+  }
+  markUnsaved(); saveDeals();
+  applyOverdueStyles();
+  // Brief confirmation flash on the row
+  if (row) {
+    row.style.transition = 'background 0.2s';
+    row.style.background = '#ecfdf5';
+    setTimeout(() => { row.style.background = ''; }, 700);
+  }
+}
+
+function applyOverdueStyles() {
+  deals.forEach(d => {
+    const row = document.getElementById('row-' + d.id);
+    if (!row) return;
+    const days = daysUntilDue(d);
+    row.classList.toggle('fu-overdue-row', days !== null && days < 0);
+    row.classList.toggle('fu-today-row',   days === 0);
+  });
+}
+
+// Check reminders on load and flag overdue rows
+function checkReminders() {
+  const overdue = [], dueToday = [], dueSoon = [];
+  deals.forEach(d => {
+    if (!d.heat || !d.lastContact) return;
+    const days = daysUntilDue(d);
+    if (days === null) return;
+    if (days < 0)  overdue.push({ d, days });
+    if (days === 0) dueToday.push({ d, days });
+    if (days > 0 && days <= 2) dueSoon.push({ d, days });
+  });
+  applyOverdueStyles();
+  if (overdue.length || dueToday.length) {
+    showReminderBanner(overdue, dueToday, dueSoon);
+  }
+}
+
+function showReminderBanner(overdue, today, soon) {
+  const total = overdue.length + today.length;
+  if (!total) return;
+  const banner = document.createElement('div');
+  banner.style.cssText = `position:fixed;top:66px;left:50%;transform:translateX(-50%) translateY(-8px);
+    background:#fff;border:1px solid #fecaca;border-radius:10px;padding:12px 18px;
+    box-shadow:0 8px 28px rgba(0,0,0,.12);z-index:300;font-family:var(--font);
+    font-size:0.8rem;max-width:400px;width:94%;opacity:0;transition:all 0.3s ease;
+    display:flex;align-items:flex-start;gap:10px;`;
+  const names = [...overdue, ...today].slice(0, 3).map(x => x.d.crossroads).join(', ');
+  const more = total > 3 ? ` +${total-3} more` : '';
+  banner.innerHTML = `
+    <span style="font-size:1.2rem;flex-shrink:0">📬</span>
+    <div style="flex:1">
+      <div style="font-weight:700;color:#991b1b;margin-bottom:2px">${total} follow-up${total>1?'s':''} due</div>
+      <div style="color:var(--text-2);font-size:.74rem">${names}${more}</div>
+    </div>
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:.9rem;flex-shrink:0;padding:0">✕</button>`;
+  document.body.appendChild(banner);
+  requestAnimationFrame(() => {
+    banner.style.opacity = '1';
+    banner.style.transform = 'translateX(-50%) translateY(0)';
+  });
+  setTimeout(() => {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateX(-50%) translateY(-8px)';
+    setTimeout(() => banner.remove(), 400);
+  }, 6000);
+}
+
+const COORDS = {
+  1:  [28.0155, -82.5310],  // Tampa - Gunn Hwy
+  2:  [28.8000, -81.6444],  // Mt Dora
+  3:  [28.3642, -82.1955],  // Dade City - Wilds
+  4:  [28.2442, -82.3260],  // Wesley Chapel
+  5:  [28.5500, -82.4500],  // Twisted Oaks (approx Hernando)
+  6:  [28.5589, -81.8556],  // Groveland
+  7:  [28.0680, -82.5600],  // Tampa - Gunn Hwy & Anderson
+  8:  [28.1600, -82.5900],  // Odessa
+  9:  [27.9764, -82.6927],  // Safety Harbor
+  10: [30.6854, -84.8412],  // Chattahoochee
+  11: [28.8567, -81.6854],  // Eustis
+  12: [28.3700, -82.2100],  // Dade City - Morning Side
+  13: [28.1352, -82.3500],  // Tampa - Cross Creek
+  14: [28.1000, -82.3800],  // Tampa - Meadows Rd
+  15: [28.5553, -82.3887],  // Brooksville
+  16: [28.2200, -82.3700],  // Wesley Chapel - SR 54
+  17: [28.4500, -81.5000],  // Southwest Orange
+  18: [28.0395, -81.9498],  // Lakeland
+  19: [28.0020, -82.1265],  // Plant City
+  20: [28.2489, -81.2811],  // St Cloud
+  21: [28.1600, -81.6100],  // Davenport
+  22: [26.6120, -81.8672],  // Fort Myers - Pine Island
+  23: [27.9700, -82.0200],  // Lakeland - Pipkin
+  24: [27.1000, -82.4500],  // Venice - 2701
+  25: [27.1050, -82.4480],  // Venice - 2907
+  26: [27.5950, -81.5050],  // Avon Park
+  27: [26.6500, -81.9800],  // Cape Coral
+  28: [27.5699, -82.5602],  // Parrish
+  29: [30.2350, -81.7700],  // Jacksonville
+  30: [26.5620, -81.8710],  // Fort Myers - Winkler
+  31: [28.3642, -82.1955],  // Dade City - Lock St
+  32: [28.3500, -82.2000],  // Dade City - Blanton & I-75
+  33: [28.2440, -82.7200],  // New Port Richey
+  34: [28.1914, -82.4584],  // Land O Lakes
+  35: [29.0558, -82.0533],  // Belleview
+};
+
+const DM_PIN_COLOR = { MC:'#00c896', RP:'#3b6ff5', TM:'#f59e0b', dead:'#8896aa' };
+const STATUS_RING  = { 'offer-sent':'#10b981','loi-sent':'#3b6ff5','uc':'#f59e0b' };
+
+let map, markers = {}, currentLayer = 'satellite';
+let tileLayerSat, tileLayerStreet, tileLayerTerrain;
+
+function makePinSVG(fillColor, ringColor) {
+  const ring = ringColor ? `<circle cx="12" cy="12" r="10" fill="none" stroke="${ringColor}" stroke-width="3" opacity="0.9"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <filter id="s"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.25"/></filter>
+    <g filter="url(#s)">
+      <path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 20 10 20s10-12.5 10-20c0-5.52-4.48-10-10-10z"
+        fill="${fillColor}" stroke="white" stroke-width="1.5"/>
+    </g>
+    ${ring ? ring.replace('cx="12" cy="12"','cx="14" cy="12"') : ''}
+    <circle cx="14" cy="12" r="4" fill="white" opacity="0.9"/>
+  </svg>`;
+}
+
+function makeIcon(fillColor, ringColor) {
+  return L.divIcon({
+    html: makePinSVG(fillColor, ringColor),
+    className: '',
+    iconSize: [28, 36],
+    iconAnchor: [14, 36],
+    popupAnchor: [0, -38]
+  });
+}
+
+function popupColor(d) {
+  const dm = (d.status==='dead') ? 'dead' : d.dm;
+  return DM_PIN_COLOR[dm] || '#888';
+}
+
+function buildPopupHtml(d) {
+  const s = STATUSES[d.status] || STATUSES['potential'];
+  const dmColor = DM_PIN_COLOR[(d.status==='dead')?'dead':d.dm] || '#888';
+  const priceStr = d.price ? '$'+Number(d.price).toLocaleString() : 'Unpriced';
+  const tenantStr = d.tenants && d.tenants!=='-' ? d.tenants : '—';
+  return `<div class="map-popup">
+    <div class="mp-status ${s.cls}"><div class="mp-dot" style="background:${s.dot}"></div>${s.label}</div>
+    <div class="mp-name">${d.crossroads}</div>
+    <div class="mp-city">${d.city}${d.state?', '+d.state:''}</div>
+    <div class="mp-divider"></div>
+    <div class="mp-row">
+      <span class="mp-label">Price</span>
+      <span class="mp-val">${priceStr}</span>
+    </div>
+    <div class="mp-row">
+      <span class="mp-label">Acreage</span>
+      <span class="mp-val">${d.acreage||'—'} ac</span>
+    </div>
+    <div class="mp-row">
+      <span class="mp-label">DM</span>
+      <div class="mp-dm" style="background:${dmColor}">${d.dm}</div>
+    </div>
+    <div class="mp-row" style="margin-top:6px">
+      <span class="mp-label">Tenants</span>
+    </div>
+    <div class="mp-tenants">${tenantStr}</div>
+    <button class="mp-highlight-btn" onclick="highlightDeal(${d.id})">View in Table ↓</button>
+    <div class="mp-pin-actions">
+      <button class="mp-pin-btn" id="move-btn-${d.id}" onclick="startMovePin(${d.id})">✦ Move Pin</button>
+      <button class="mp-pin-btn danger" onclick="removePin(${d.id})">✕ Remove Pin</button>
+    </div>
+  </div>`;
+}
+
+function initMap() {
+  if (map) return;
+
+  map = L.map('map-container', {
+    center: [28.2, -82.0],
+    zoom: 7,
+    zoomControl: false
+  });
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  // Tile layers
+  tileLayerSat = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: '© Esri, Maxar, Earthstar Geographics', maxZoom: 19 }
+  );
+  // Transparent road/label overlay for satellite mode
+  const tileLayerSatLabels = L.tileLayer(
+    'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+    { attribution: '', maxZoom: 19, opacity: 0.85 }
+  );
+  // Bundle sat + labels together as a layer group
+  window._satGroup = L.layerGroup([tileLayerSat, tileLayerSatLabels]);
+
+  tileLayerStreet = L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { attribution: '© OpenStreetMap contributors', maxZoom: 19 }
+  );
+  tileLayerTerrain = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    { attribution: '© Esri', maxZoom: 19 }
+  );
+
+  window._satGroup.addTo(map);
+
+  // Merge any lat/lng stored on deal objects into COORDS
+  deals.forEach(d => {
+    if (d.lat && d.lng) COORDS[d.id] = [parseFloat(d.lat), parseFloat(d.lng)];
+  });
+
+  // Place markers — dead/UC hidden by default
+  deals.forEach(d => {
+    const coords = COORDS[d.id];
+    if (!coords) return;
+    const isDead = d.status==='dead';
+    const dmKey = isDead ? 'dead' : d.dm;
+    const fillColor = DM_PIN_COLOR[dmKey] || '#888';
+    const ringColor = STATUS_RING[d.status] || null;
+    const icon = makeIcon(fillColor, ringColor);
+    const marker = L.marker(coords, { icon })
+      .bindPopup(buildPopupHtml(d), { maxWidth: 260, minWidth: 240 });
+    if (!isDead) marker.addTo(map);   // dead pins hidden until toggled
+    markers[d.id] = marker;
+  });
+
+  // Fit to FL bounds
+  map.fitBounds([[25.0, -87.5],[31.0, -80.0]]);
+}
+
+function setMapLayer(type) {
+  if (!map) return;
+  currentLayer = type;
+  [window._satGroup, tileLayerStreet, tileLayerTerrain].forEach(l => { try { map.removeLayer(l); } catch(e){} });
+  if (type==='satellite') window._satGroup.addTo(map);
+  else if (type==='street') tileLayerStreet.addTo(map);
+  else tileLayerTerrain.addTo(map);
+  document.getElementById('btnSatellite').classList.toggle('active', type==='satellite');
+  document.getElementById('btnStreet').classList.toggle('active', type==='street');
+  document.getElementById('btnTerrain').classList.toggle('active', type==='terrain');
+}
+
+function toggleMap() {
+  const body = document.getElementById('mapBody');
+  const chev = document.getElementById('mapChevron');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  chev.classList.toggle('open', !isOpen);
+  if (!isOpen) {
+    setTimeout(() => {
+      if (!map) initMap();
+      else map.invalidateSize();
+    }, 50);
+  }
+}
+
+function highlightDeal(id) {
+  // Close popup
+  if (markers[id]) markers[id].closePopup();
+  // Scroll to row and flash it
+  const row = document.getElementById(`row-${id}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior:'smooth', block:'center' });
+  row.classList.remove('row-highlighted');
+  void row.offsetWidth; // reflow
+  row.classList.add('row-highlighted');
+  setTimeout(()=>row.classList.remove('row-highlighted'), 2200);
+}
+
+// Map initialized by initApp() after password unlock
+
+// ── PIN MODE ──────────────────────────────────────────────────────────────────
+let pinMode = false;
+let pinMarkerTemp = null;
+let pinLatLng = null;
+let pinModeBanner = null;
+
+function togglePinMode() {
+  if (!map) { initMap(); setTimeout(togglePinMode, 400); return; }
+  // Open map if collapsed
+  const mapBody = document.getElementById('mapBody');
+  if (mapBody.style.display === 'none') {
+    mapBody.style.display = '';
+    document.getElementById('mapChevron').classList.add('open');
+    map.invalidateSize();
+  }
+  pinMode = !pinMode;
+  const btn = document.getElementById('btnPinMode');
+  const container = document.getElementById('map-container');
+  if (pinMode) {
+    btn.classList.add('pin-active');
+    btn.textContent = '✕ Cancel Pin';
+    container.classList.add('pin-mode');
+    // Show banner inside map
+    pinModeBanner = document.createElement('div');
+    pinModeBanner.className = 'pin-mode-banner';
+    pinModeBanner.textContent = '📍 Click anywhere on the map to place a deal pin';
+    container.style.position = 'relative';
+    container.appendChild(pinModeBanner);
+    map.on('click', onMapPinClick);
+  } else {
+    exitPinMode();
+  }
+}
+
+function exitPinMode() {
+  pinMode = false;
+  const btn = document.getElementById('btnPinMode');
+  const container = document.getElementById('map-container');
+  if (btn) { btn.classList.remove('pin-active'); btn.textContent = '📍 Pin Deal'; }
+  container.classList.remove('pin-mode');
+  if (pinModeBanner && pinModeBanner.parentNode) pinModeBanner.parentNode.removeChild(pinModeBanner);
+  pinModeBanner = null;
+  map.off('click', onMapPinClick);
+  // Remove temp marker if modal was cancelled
+  if (pinMarkerTemp) { map.removeLayer(pinMarkerTemp); pinMarkerTemp = null; }
+}
+
+function onMapPinClick(e) {
+  pinLatLng = e.latlng;
+  exitPinMode();  // exit mode before opening modal
+
+  // Drop a temporary "ghost" pin
+  const ghostIcon = makeIcon('#888888', null);
+  pinMarkerTemp = L.marker([pinLatLng.lat, pinLatLng.lng], { icon: ghostIcon, opacity: 0.6 }).addTo(map);
+
+  // Show coordinates in the modal
+  document.getElementById('pinCoordLabel').textContent =
+    `📍 ${pinLatLng.lat.toFixed(5)}, ${pinLatLng.lng.toFixed(5)}`;
+
+  // Clear and pre-fill fields
+  ['pm-cross','pm-city','pm-state','pm-price','pm-acreage','pm-tenants','pm-contact','pm-email','pm-notes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'pm-state' ? 'FL' : '';
+  });
+  document.getElementById('pin-search').value = '';
+  document.getElementById('pin-search-results').innerHTML = '';
+  populateStatusSelects();
+
+  // Reverse-geocode to pre-fill address
+  reverseGeocode(pinLatLng.lat, pinLatLng.lng);
+
+  // Show modal
+  const m = document.getElementById('pinModal');
+  m.classList.add('open');
+}
+
+function reverseGeocode(lat, lng) {
+  fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=16`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.address) return;
+      const a = data.address;
+      // Build crossroads-style label from road + nearest intersection
+      const road = a.road || a.pedestrian || a.footway || '';
+      const city = a.city || a.town || a.village || a.suburb || a.county || '';
+      const state = a.state_code || a.state || 'FL';
+      if (road && !document.getElementById('pm-cross').value) {
+        document.getElementById('pm-cross').value = road;
+      }
+      if (city && !document.getElementById('pm-city').value) {
+        document.getElementById('pm-city').value = city;
+      }
+      document.getElementById('pm-state').value = state || 'FL';
+      document.getElementById('pinCoordLabel').textContent =
+        `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}  ·  ${data.display_name ? data.display_name.split(',').slice(0,3).join(',') : ''}`;
+    })
+    .catch(() => {});  // silently fail, user can type manually
+}
+
+function searchPinAddress() {
+  const q = document.getElementById('pin-search').value.trim();
+  if (!q) return;
+  const resultsEl = document.getElementById('pin-search-results');
+  resultsEl.innerHTML = '<div style="font-size:0.72rem;color:var(--text-3);padding:6px 4px">Searching…</div>';
+
+  fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=us`)
+    .then(r => r.json())
+    .then(results => {
+      if (!results.length) {
+        resultsEl.innerHTML = '<div style="font-size:0.72rem;color:var(--text-3);padding:6px 4px">No results found — try a more specific address</div>';
+        return;
+      }
+      resultsEl.innerHTML = `<div class="pin-result-list">${results.map((r,i) => `
+        <div class="pin-result" onclick="selectPinResult(${r.lat},${r.lon},'${esc(r.display_name.split(',').slice(0,3).join(','))}')">
+          📍 ${esc(r.display_name.split(',').slice(0,4).join(','))}
+        </div>`).join('')}</div>`;
+    })
+    .catch(() => {
+      resultsEl.innerHTML = '<div style="font-size:0.72rem;color:#cf1322;padding:6px 4px">Search failed — check connection</div>';
+    });
+}
+
+function selectPinResult(lat, lon, label) {
+  pinLatLng = { lat: parseFloat(lat), lng: parseFloat(lon) };
+
+  // Move / place temp marker
+  if (pinMarkerTemp) map.removeLayer(pinMarkerTemp);
+  const ghostIcon = makeIcon('#888888', null);
+  pinMarkerTemp = L.marker([pinLatLng.lat, pinLatLng.lng], { icon: ghostIcon, opacity: 0.6 }).addTo(map);
+  map.setView([pinLatLng.lat, pinLatLng.lng], 15);
+
+  // Update coord label
+  document.getElementById('pinCoordLabel').textContent =
+    `📍 ${pinLatLng.lat.toFixed(5)}, ${pinLatLng.lng.toFixed(5)}  ·  ${label}`;
+
+  // Clear search results
+  document.getElementById('pin-search-results').innerHTML = '';
+
+  // Reverse geocode to fill fields
+  reverseGeocode(pinLatLng.lat, pinLatLng.lng);
+}
+
+function closePinModal() {
+  document.getElementById('pinModal').classList.remove('open');
+  if (pinMarkerTemp) { map.removeLayer(pinMarkerTemp); pinMarkerTemp = null; }
+  pinLatLng = null;
+}
+
+function addDealFromPin() {
+  if (!pinLatLng) { alert('No location selected — click the map or search an address first.'); return; }
+
+  const crossroads = document.getElementById('pm-cross').value.trim();
+  if (!crossroads) { document.getElementById('pm-cross').focus(); return; }
+
+  const newDeal = {
+    id:          nextId++,
+    dm:          document.getElementById('pm-dm').value,
+    status:      document.getElementById('pm-status').value,
+    crossroads,
+    city:        document.getElementById('pm-city').value.trim(),
+    state:       document.getElementById('pm-state').value.trim() || 'FL',
+    price:       fmtPrice(document.getElementById('pm-price').value),
+    acreage:     document.getElementById('pm-acreage').value.trim(),
+    tenants:     document.getElementById('pm-tenants').value.trim(),
+    contact:     document.getElementById('pm-contact').value.trim(),
+    email:       document.getElementById('pm-email').value.trim(),
+    phone:       '',
+    ipEnd:       '',
+    rating:      null,
+    afterDiving: document.getElementById('pm-notes').value.trim(),
+    initialNotes:'',
+    heat:        null,
+    lastContact: null,
+  };
+
+  deals.push(newDeal);
+
+  // Add permanent map marker at pinLatLng
+  const isDead = newDeal.status==='dead';
+  const dmKey = isDead ? 'dead' : newDeal.dm;
+  const fillColor = DM_PIN_COLOR[dmKey] || '#888';
+  const ringColor = STATUS_RING[newDeal.status] || null;
+  const icon = makeIcon(fillColor, ringColor);
+  const marker = L.marker([pinLatLng.lat, pinLatLng.lng], { icon })
+    .bindPopup(buildPopupHtml(newDeal), { maxWidth: 260, minWidth: 240 });
+  if (!isDead) marker.addTo(map);
+  markers[newDeal.id] = marker;
+
+  // Also store coordinates so the deal appears correctly on future loads
+  COORDS[newDeal.id] = [pinLatLng.lat, pinLatLng.lng];
+
+  // Clean up temp marker and close modal
+  if (pinMarkerTemp) { map.removeLayer(pinMarkerTemp); pinMarkerTemp = null; }
+  pinLatLng = null;
+  document.getElementById('pinModal').classList.remove('open');
+
+  markUnsaved();
+  saveDeals();
+  render();
+
+  // Pan to new marker and open its popup
+  map.setView([markers[newDeal.id].getLatLng().lat, markers[newDeal.id].getLatLng().lng], 14);
+  setTimeout(() => markers[newDeal.id].openPopup(), 300);
+
+  // Flash in the table
+  setTimeout(() => {
+    const row = document.getElementById(`row-${newDeal.id}`);
+    if (row) {
+      row.scrollIntoView({ behavior:'smooth', block:'center' });
+      row.classList.add('row-highlighted');
+      setTimeout(() => row.classList.remove('row-highlighted'), 2200);
+    }
+  }, 400);
+}
+
+// ── MAP FLOATING SEARCH ───────────────────────────────────────────────────
+let mapSearchTimer = null;
+let mapSearchMarker = null;
+
+function onMapSearch(val) {
+  const clearBtn = document.getElementById('mapSearchClear');
+  clearBtn.style.display = val ? 'block' : 'none';
+  clearTimeout(mapSearchTimer);
+  const resultsEl = document.getElementById('mapSearchResults');
+  if (!val.trim()) { resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '<div class="msearch-empty">Searching…</div>';
+  mapSearchTimer = setTimeout(() => runMapSearch(val.trim()), 400);
+}
+
+async function runMapSearch(q) {
+  const resultsEl = document.getElementById('mapSearchResults');
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=us&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const data = await res.json();
+    if (!data.length) { resultsEl.innerHTML = '<div class="msearch-empty">No results found</div>'; return; }
+    resultsEl.innerHTML = data.map(r => {
+      const parts = r.display_name.split(',');
+      const title = parts.slice(0, 2).join(',').trim();
+      const sub = parts.slice(2, 4).join(',').trim();
+      return `<div class="msearch-result" onclick="selectMapSearchResult(${r.lat},${r.lon})">
+        <strong>${esc(title)}</strong>${esc(sub)}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    resultsEl.innerHTML = '<div class="msearch-empty">Search error — try again</div>';
+  }
+}
+
+function selectMapSearchResult(lat, lon) {
+  if (!map) return;
+  const ll = [parseFloat(lat), parseFloat(lon)];
+  map.setView(ll, 16);
+  // Drop a temporary crosshair marker
+  if (mapSearchMarker) map.removeLayer(mapSearchMarker);
+  mapSearchMarker = L.circleMarker(ll, {
+    radius: 10, color: '#3b6ff5', fillColor: '#3b6ff5',
+    fillOpacity: 0.25, weight: 2.5
+  }).addTo(map);
+  setTimeout(() => {
+    if (mapSearchMarker) { map.removeLayer(mapSearchMarker); mapSearchMarker = null; }
+  }, 3500);
+  document.getElementById('mapSearchResults').innerHTML = '';
+}
+
+function clearMapSearch() {
+  document.getElementById('mapSearchInput').value = '';
+  document.getElementById('mapSearchResults').innerHTML = '';
+  document.getElementById('mapSearchClear').style.display = 'none';
+  if (mapSearchMarker) { map.removeLayer(mapSearchMarker); mapSearchMarker = null; }
+}
+
+// ── MOVE / REMOVE EXISTING PINS ───────────────────────────────────────────
+let movingPinId = null;
+
+function startMovePin(id) {
+  if (!map || !markers[id]) return;
+
+  // Cancel any existing move
+  if (movingPinId !== null) cancelMovePin(movingPinId);
+
+  movingPinId = id;
+  window._movingPinId = id;
+  markers[id].closePopup();
+
+  // Make the marker draggable
+  markers[id].dragging.enable();
+  markers[id]._icon && markers[id]._icon.classList.add('pin-dragging');
+
+  // Show the bar above the map
+  document.getElementById('movePinBar').classList.add('active');
+
+  // Allow clicking map to jump pin there
+  map.on('click', function onMoveClick(e) {
+    if (movingPinId !== id) return;
+    markers[id].setLatLng(e.latlng);
+  });
+
+  // Wire dragend to update lat/lng inputs live
+  markers[id].on('dragend', function() {
+    const ll = markers[id].getLatLng();
+    updateLatLngInputs(id, ll.lat, ll.lng);
+  });
+}
+
+function confirmMovePin(id) {
+  if (!markers[id]) return;
+  const ll = markers[id].getLatLng();
+  applyNewPinLocation(id, ll.lat, ll.lng);
+  finishMovePin(id);
+}
+
+function cancelMovePin(id) {
+  // Snap back to original coords
+  const orig = COORDS[id];
+  if (orig && markers[id]) markers[id].setLatLng(orig);
+  finishMovePin(id);
+}
+
+function finishMovePin(id) {
+  movingPinId = null;
+  window._movingPinId = null;
+  if (markers[id]) {
+    markers[id].dragging.disable();
+    markers[id]._icon && markers[id]._icon.classList.remove('pin-dragging');
+    markers[id].off('dragend');
+  }
+  map.off('click');
+  document.getElementById('movePinBar').classList.remove('active');
+  // Re-open popup so user can see updated coords
+  if (markers[id]) setTimeout(() => markers[id].openPopup(), 150);
+}
+
+function applyNewPinLocation(id, lat, lng) {
+  COORDS[id] = [lat, lng];
+  const d = deals.find(x => x.id == id);
+  if (d) { d.lat = lat; d.lng = lng; }
+  if (markers[id]) {
+    markers[id].setLatLng([lat, lng]);
+    markers[id].setPopupContent(buildPopupHtml(d));
+  }
+  updateLatLngInputs(id, lat, lng);
+  markUnsaved(); saveDeals();
+}
+
+function updateLatLngInputs(id, lat, lng) {
+  const latEl = document.getElementById(`lat-${id}`);
+  const lngEl = document.getElementById(`lng-${id}`);
+  if (latEl) latEl.value = lat.toFixed(6);
+  if (lngEl) lngEl.value = lng.toFixed(6);
+}
+
+function removePin(id) {
+  if (!confirm('Remove this pin from the map?\n\nThe deal stays in the table — only its map location is cleared.')) return;
+  if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+  delete COORDS[id];
+  const d = deals.find(x => x.id == id);
+  if (d) { delete d.lat; delete d.lng; }
+  const latEl = document.getElementById(`lat-${id}`);
+  const lngEl = document.getElementById(`lng-${id}`);
+  if (latEl) latEl.value = '';
+  if (lngEl) lngEl.value = '';
+  markUnsaved(); saveDeals();
+}
+
+// ── All functions defined — safe to boot now ─────────────────────────────
+window.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
