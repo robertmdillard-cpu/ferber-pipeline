@@ -1204,13 +1204,14 @@
     <div class="lock-title">FlowTrack</div>
     <div class="lock-sub">FL Commercial Pipeline · Q1 2026</div>
     <div class="lock-input-wrap">
-      <input class="lock-input" id="lockInput" type="password"
-        placeholder="Enter password"
-        onkeydown="if(event.key==='Enter')checkPassword()"
-        autocomplete="current-password">
-      <button class="lock-eye" id="lockEye" onclick="toggleLockEye()" tabindex="-1">👁</button>
-    </div>
-    <button class="lock-btn" onclick="checkPassword()">Unlock</button>
+     <div class="lock-input-wrap">
+  <input class="lock-input" id="lockInput" type="password"
+    placeholder="Enter password"
+    autocomplete="current-password">
+  <button class="lock-eye" id="lockEye" onclick="toggleLockEye()" tabindex="-1">👁</button>
+</div>
+<button class="lock-btn" id="unlockBtn">Unlock</button>
+<div class="lock-error" id="lockError"></div> 
     <div class="lock-error" id="lockError"></div>
     <div class="lock-footer">Ferber Commercial Real Estate</div>
   </div>
